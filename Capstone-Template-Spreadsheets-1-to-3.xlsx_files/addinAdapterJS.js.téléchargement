@@ -1,0 +1,135 @@
+﻿const addinAdapter = (function () {
+    return Object.freeze({
+        ajax: function (url, type, data, doneFunc, failFunc) {
+            $.ajax({
+                url: url,
+                type: type,
+                dataType: "json",
+                data: data
+            })
+                .done(function (data) {
+                    doneFunc(data);
+                })
+                .fail(function (error) {
+                    failFunc(error);
+                });
+        },
+
+        closeDialog: function () {
+            common.sendCloseDialogMsg();
+        },
+
+        daysRemaining: function () {
+            var days;
+            var token = addinAdapter.getStorageValue('productToken');
+            if (token) {
+                token = JSON.parse(addinAdapter.decodeBase64(token.split('.')[1]));
+                days = token.daysRemaining;
+            }
+            return days;
+        },
+
+        decodeBase64: function (s) {
+            var e = {}, i, b = 0, c, x, l = 0, a, r = '', w = String.fromCharCode, L = s.length;
+            var A = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            for (i = 0; i < 64; i++) { e[A.charAt(i)] = i; }
+            for (x = 0; x < L; x++) {
+                c = e[s.charAt(x)]; b = (b << 6) + c; l += 6;
+                while (l >= 8) { ((a = (b >>> (l -= 8)) & 0xff) || (x < (L - 2))) && (r += w(a)); }
+            }
+            return r;
+        },
+
+        delStorageValue: function (k) {
+            var val = window.localStorage.getItem(k);
+            window.localStorage.removeItem(k);
+            return val;
+        },
+
+        getAddinVersion: function () {
+            return config.version;
+        },
+
+        getChatSrcUrl: function () {
+            return "//storage.googleapis.com/code.snapengage.com/js/" + config.chatId + ".js";
+        },
+
+        getChatVariables: function () {
+            try {
+                var chatVariables = {
+                    LockCode: addinAdapter.getStorageValue("lockCode") || "None",
+                    SolverEngine: "N/A",
+                    LastStatus: "N/A",
+                    ModelType: "N/A",
+                    ModelSize: "N/A",
+                    OutputWindow: "N/A",
+                    ExcelVer: (Office.context.diagnostics.version === "0.0.0.0") ? "N/A" : Office.context.diagnostics.host + " v" + Office.context.diagnostics.version,
+                    OSDisplayString: Office.context.diagnostics.platform + " Javascript Add-in",
+                    UserType: common.getUserType() || "Unknown"
+                };
+
+                return chatVariables;
+            } catch (e) {
+                return null;
+            }
+        },
+
+        getClientInfo: function () {
+            return (typeof Office === 'undefined' || Office === null) ? navigator.userAgent : Office.context.platform + " " + Office.context.host;
+        },
+
+        getPagesPath: function () {
+            return "/common/webaddins/CommonApp/Pages";
+        },
+
+        getStorageValue: function (k) {
+            return window.localStorage.getItem(k);
+        },
+
+        isLoggedIn: function () {
+            return common.isLoggedIn();
+        },
+
+        licenseExpired: function () {
+            return common.licenseExpired();
+        },
+
+        messageParent: function (message) {
+            Office.context.ui.messageParent(message);
+        },
+
+        navigate: function (href) {
+            window.location.href = href;
+        },
+
+        setStorageValue: function (k, v) {
+            var val = v ? (typeof v === "string" ? v : JSON.stringify(v)) : "";
+            window.localStorage.setItem(k, val);
+        },
+
+        setTitle: function (title) {
+            document.title = title;
+        }
+    });
+}());
+
+(function () {
+    var initOnReady = function () {
+        if (typeof Office !== 'undefined') {
+            Office.onReady(function () {
+                $(document).ready(function () {
+                    if (typeof initPage === "function") {
+                        initPage();
+                    } else {
+                        console.log("initPage function - " + typeof initPage);
+                    }
+                });
+            });
+        } else {
+            setTimeout(function () {
+                initOnReady();
+            }, 100);
+        }
+    }
+    initOnReady();
+}());

@@ -1,0 +1,19 @@
+const config = (function () {
+    return Object.freeze({
+        "aboutUrl": "/common/webaddins/CommonApp/Pages/About.html",
+        "appStoreAnalyticSolverUrl": "https://store.office.com/gyro/clientstore?client=WAC_Excel#/details/WA200000018",
+        "appStoreDataMiningUrl": "https://store.office.com/gyro/clientstore?client=WAC_Excel#/details/WA200000019",
+        "chatId": "fa13f49e-8673-435f-bfe4-e84a6e1e0423",
+        "examplesFileUrl": "/common/webaddins/CommonApp/Examples/",
+        "examplesOverviewUrl": "/ExamplesOverview.html",
+        "expiredUrl": "/User/ExpiredLicense",
+        "identityServerUrl": "https://analytic-solver.net",
+        "loginUrl": "/User/Login?returnUrl=/User/ValidatingLicense&lockCode=",
+        "logoutUrl": "/User/Logout",
+        "rasonServerApiUrl": "https://rason.net/api",
+        "renewUrl": "/User/Renew",
+        "version": "20.0.1.0",
+        "warningUrl": "/common/webaddins/CommonApp/AppUI/warning.html",
+        "welcomeUrl": "/common/webaddins/CommonApp/Pages/Welcome.html"
+    });
+}());

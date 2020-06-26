@@ -1,0 +1,234 @@
+﻿var rasonApp = {
+    RASONModelID: false,
+    solveStopped: false,
+    testRun: false,
+    promise: null,
+    parameters: "",
+    message: null,
+    productType: 3, //1 == Platform, 2==Pro, 3==EDU, 4==test
+    fid: 0,
+    // URL fragment determining whether or not we are simulating or optimizing the model
+    RASONEntry: '/datamineapp',
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // A generic error handler that cleans up
+    invokeFailed: function (jqXHR, textStatus, errorThrown) {
+        var msg = "Data Mine request: " + textStatus + ' ' + jqXHR.status;// + ' ' + jqXHR.statusText + ' ' + jqXHR.responseText;
+        if (!rasonApp.solveStopped) {
+            if (rasonApp.RASONModelID) {
+                rasonApp.deleteModel();
+                // We are done. Clear the data
+                common.app.ajaxOpts.data = null;
+            }
+            utils.writeError(msg);
+        }
+        if (typeof Ext !== "undefined") {
+            Ext.fireEvent("xlmrequestfailed", textStatus, jqXHR.status, jqXHR.statusText, jqXHR.responseTex);
+        } else {
+            if (rasonApp.promise) {
+                rasonApp.promise.reject(msg);
+            } else {
+                common.closeDialogAsync(function () {
+                    common.showWarningDialog(msg);
+                });
+            }
+        }
+    },
+
+    // Entry point for running an xlminer operation.
+    startSolve: function (model) {
+        common.app.ajaxOpts.method = 'POST';
+        var data = new FormData();
+        var blob = model;
+        data.append('blob', blob, 'blob' + utils.getUniqueId() + '.xlsx');
+        common.app.ajaxOpts.data = data;
+        common.app.ajaxOpts.processData = false;  // tell jQuery not to process the data
+        common.app.ajaxOpts.contentType = false;
+        common.app.ajaxOpts.cache = false;
+        this.RASONEntry = '/datamineapp';
+        utils.writeError("Initial post");
+        $.ajax(common.app.server + '/model', common.app.ajaxOpts).done(this.getModelId).fail(this.invokeFailed);
+    },
+
+    // Once the model has been posted to the RASON server by the 'startSolve' function above, get the model ID in order to track
+    // it's 'solve' progress.
+    getModelId: function (data, textStatus, jqXHR) {
+        utils.writeError("getmodelid");
+        rasonApp.RASONModelID = jqXHR.getResponseHeader('location');
+        if (rasonApp.RASONModelID) {
+            // we have a model ID, move to the next step
+            common.app.ajaxOpts.data = JSON.stringify(rasonApp.parameters);
+            common.app.ajaxOpts.method = 'POST';
+            rasonApp.RASONEntry += "?wbk=" + encodeURIComponent("Book1.xlsx") + "&xlmFn=" + rasonApp.fid + (rasonApp.testRun ? '&test=2' : '');/*+ "&ptype=" + common.app.rasonProductType*/;
+            // **** Note that the model has only been posted at this point. Below is the REST API invocation that begins solving the model. ******
+            // Get and add the query parameters to the request. They must be correctly entered in the input text box.
+            $.ajax(rasonApp.RASONModelID + rasonApp.RASONEntry, common.app.ajaxOpts).done(rasonApp.status).fail(rasonApp.invokeFailed);
+        } else {
+            //app.showNotification("solver", "No model ID! Please contact technical support.");
+        }
+    },
+
+    status: function (data, textStatus, jqXHR) {
+        utils.writeError("statuscheck");
+        setTimeout(function () {
+            common.app.ajaxOpts.method = 'GET';
+            common.app.ajaxOpts.data = null;
+            common.app.ajaxOpts.cache = false;
+            common.app.ajaxOpts.context = this;
+            utils.writeError(rasonApp.RASONModelID + '/status');
+            $.ajax(rasonApp.RASONModelID + '/status', common.app.ajaxOpts).done(rasonApp.checkStatus).fail(rasonApp.invokeFailed);
+
+        }, 100);
+    },
+
+    checkStatus: function (data, textStatus, jqXHR) {
+        if (data && data.status === "Complete") {
+            utils.writeError("complete");
+            common.app.ajaxOpts.method = 'GET';
+            // the model is complete! Now get the results
+            $.ajax(rasonApp.RASONModelID + '/result', common.app.ajaxOpts).done(rasonApp.results).fail(rasonApp.invokeFailed);
+
+        } else {
+            utils.writeError("more status");
+            rasonApp.status();
+        }
+    },
+
+    // Print the results as a JSON string, showing the structure of the results object returned by the rason server
+    results: function (data, textStatus, jqXHR) {
+        rasonApp.deleteModel();
+        //TODO check for error return code....
+        try {
+            if (data && data.resultCode && data.resultCode !== 0) {
+                utils.writeError(data.resultMsg);
+                common.closeDialogAsync(function () {
+                    if (!rasonApp.promise) {
+                        // if there is no promise associated with this execution, display the error. Otherwise, let 
+                        // the promise handle the error. It will be evaluated in the rasonApp.finishResults() call.
+                        if (data.resultCode === 211 || data.resultCode === 201) {
+                            // in this case, we need to launch the product selections wizard
+                            rasonApp.recommendProduct(data, 'dm', true, rasonApp.parameters, rasonApp.fid);
+
+                        } else {
+                            common.showWarningDialog(data.resultMsg);
+                        }
+                    }
+                    rasonApp.finishResults(data);
+                });
+            } else {
+                common.closeDialog();
+                if (data) {
+                    var p = common.generateSheets(data);
+                    p.then(function () {
+                        rasonApp.finishResults(data);
+                    });
+                } else {
+                    rasonApp.finishResults(data);
+                }
+            }
+        } catch (err) {
+            utils.writeError("Error:" + err);
+        }
+    },
+
+    recommendProduct: function (modelResult, probClass, allowTry, dmTestRunConfig, func_id) {
+        var recProd = {
+            product: 'xlmplat',
+            components: []
+        };
+
+        this.showRecommendedProductWin(modelResult.resultMsg, recProd, allowTry, dmTestRunConfig, func_id);
+
+    },
+
+    showRecommendedProductWin: function (msg, recProd, allowTestRun, dmTestRunConfig, dm_func) {
+        var info = {};
+        info.choice = msg;
+        info.recommendProduct = recProd;
+        info.dmTestRunConfig = dmTestRunConfig;
+        info.dmFuncId = dm_func;
+        info.allowTestRun = allowTestRun;
+        localStorage.setItem('prodWiz', JSON.stringify(info));
+        common.openDialog(700, 600, '/solver/webaddins/Solver/Pages/AppUI/prodRecommend.html');
+    },
+
+
+    finishResults: function (data) {
+        try {
+            var sheets = [];
+            if (data.sheets) {
+                for (var k = 0; k < data.sheets.length; ++k) {
+                    var item = data.sheets[k];
+                    if (Array.isArray(item)) {
+                        for (var j = 0; j < item.length; ++j) {
+                            sheets.push(item[j].name);
+                        }
+                    } else {
+                        sheets.push(item.name);
+                    }
+                }
+            }
+            if (rasonApp.testRun) {
+                setTimeout(function () {
+                    data.resultMsg = "Data Mining task completed; only the first output sheet was created for this Test Run.";
+                    rasonApp.recommendProduct(data, 'dm', false, rasonApp.parameters, rasonApp.fid);
+                }, 1000);
+            } else {
+                var xlmResultInfo = {
+                    worksheet: rasonApp.message.params.wksheet,
+                    workbook: data.workbook,
+                    funcId: rasonApp.message.fid,
+                    params: JSON.stringify(rasonApp.message.params),
+                    resultBook: data.workbook,
+                    resultCode: data.resultCode,
+                    resultMsg: data.resultMsg,
+                    resultSheets: JSON.stringify(sheets),
+                    form: rasonApp.message.theFrm
+                };
+
+                if (addinAdapter.getStorageValue('recording') === "true") {
+                    addinAdapter.setStorageValue('recordInfo', xlmResultInfo);
+                    addinAdapter.setStorageValue("recordInfoReady", "1");
+                    //common.saveAppSetting("recordInfoReady", "1");
+                }
+
+                if (rasonApp.promise) {
+                    rasonApp.promise.resolve({
+                        resultBook: data.workbook,
+                        resultCode: (data.resultCode === null || data.resultCode === undefined ? 0 : data.resultCode),
+                        resultMsg: data.resultMsg,
+                        resultSheets: sheets
+                    });
+                } else if (typeof Ext !== "undefined") {
+                    Ext.fireEvent("xlmrequestfinished", xlmResultInfo);
+                }
+            }
+        } catch (err) {
+            utils.writeError("finish results error:" + err);
+        }
+    },
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // It's generally a good idea to clean up when done. Models that are NOT deleted are
+    // persisted at rason.net. However, the model ID is required to retrieve a model from rason.net.
+    deleteModel: function () {
+        if (rasonApp.RASONModelID) {
+            common.app.ajaxOpts.method = 'DELETE';
+            $.ajax(rasonApp.RASONModelID + '/delete', common.app.ajaxOpts);
+            rasonApp.RASONModelID = 0;
+        }
+    },
+    ///////////////////////////////////////////////////////////////////////////
+    // The following 2 functions demonstrate stopping a model that is currently being solved by the RASON API.
+    stopOptimize: function () {
+        if (this.RASONModelID) {
+            rasonApp.solveStopped = true;
+            common.app.ajaxOpts.method = 'POST';
+            // We are cleaning up in this case. Otherwise the 'done' callback could be omitted
+            $.ajax(this.RASONModelID + '/stop', common.app.ajaxOpts).done(this.stopped).fail(this.invokeFailed);
+        }
+    },
+
+    stopped: function (data, textStatus, jqXHR) {
+    }
+};

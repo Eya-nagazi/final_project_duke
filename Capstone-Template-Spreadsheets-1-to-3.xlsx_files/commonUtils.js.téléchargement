@@ -1,0 +1,840 @@
+////////////////////////////////////////////////////////
+// Common utilities shared between Solver and DM apps //
+////////////////////////////////////////////////////////
+
+if (!String.prototype.startsWith) {
+    String.prototype.startsWith = function (search, pos) {
+        return this.substr(!pos || pos < 0 ? 0 : +pos, search.length) === search;
+    };
+}
+
+var utils = {
+    suspend: function (context) {
+        if (context.workbook.application.suspendApiCalculationUntilNextSync)
+            context.workbook.application.suspendApiCalculationUntilNextSync();
+        //this is available in preview office.js only
+        if (context.application.suspendScreenUpdatingUntilNextSync)
+            context.application.suspendScreenUpdatingUntilNextSync();
+    },
+
+    isOnline: function () {
+        return window.top !== window;
+    },
+
+    isMac: function () {
+        return navigator.platform.indexOf('Mac') > -1;
+    },
+
+    isWin: function () {
+        return navigator.platform.indexOf('Win') > -1;
+    },
+
+    getFirstProperty: function (obj) {
+        for (var prop in obj)
+            return obj[prop];
+        return null;
+    },
+
+    getNumKeys: function (obj) {
+        return Object.keys(obj).length;
+    },
+
+    minElement: function (array) {
+        return Math.min.apply(null, array);
+    },
+
+    maxElement: function (array) {
+        return Math.max.apply(null, array);
+    },
+
+    create2DArray: function (numRows) {
+        var arr = [];
+
+        for (var i = 0; i < numRows; i++)
+            arr[i] = [];
+
+        return arr;
+    },
+
+    initArray: function (size, value) {
+        var result = [];
+        while (size--) result[size] = value;
+        return result;
+    },
+
+    uniqueValuesArray: function (array) {
+        var unique = function (value, index, self) {
+            return self.indexOf(value) === index;
+        };
+
+        return array.filter(unique);
+    },
+
+    // flat 1-level objects with key-value pairs
+    // return only unique values
+    uniqueValuesObject: function (object) {
+        var arr = [];
+        for (var i in object)
+            arr.push(object[i]);
+
+        return utils.uniqueValuesArray(arr);
+    },
+
+    // return indices of the unique elements in the array
+    uniqueValueIndicesArray: function (array) {
+        var unique = utils.uniqueValuesArray(array);
+
+        var ids = [];
+        for (var i = 0; i < unique.length; i++)
+            ids.push(array.indexOf(unique[i]));
+
+        return {
+            unique: unique,
+            ids: ids
+        };
+    },
+
+    // return indices of the pairs with unique values in the object
+    uniqueValueIndicesObject: function (object) {
+        var unique = utils.uniqueValuesObject(object);
+
+        var objectValues = [];
+        for (var i in object)
+            objectValues.push(object[i]);
+
+        var ids = [];
+        for (var j = 0; j < unique.length; j++)
+            ids.push(objectValues.indexOf(unique[j]));
+
+        return {
+            unique: unique,
+            ids: ids
+        };
+    },
+
+    getRangeParts: function (range) {
+        var result = {
+            sheet: null,
+            range: range
+        };
+
+        var pos = range.indexOf('!');
+        if (pos >= 0) {
+            result.sheet = range.substring(0, pos).replace(/'/g, "");
+            result.range = range.substring(pos + 1);
+        }
+
+        return result;
+    },
+
+    // get column colID from a 2D row-major array
+    getColumn: function (arr, colID) {
+        var result = [];
+        for (var row = 0; row < arr.length; row++) {
+            result[row] = arr[row][colID];
+        }
+
+        return result;
+    },
+
+    isDigit: function (c) {
+        return ("0123456789.".indexOf(c) == -1 ? 0 : 1);
+    },
+
+    isAlpha: function (aChar) {
+        myCharCode = aChar.charCodeAt(0);
+
+        if (((myCharCode > 64) && (myCharCode < 91)) ||
+            ((myCharCode > 96) && (myCharCode < 123))) {
+            return true;
+        }
+
+        return false;
+    },
+
+    trunc: function (x) {
+        if (x >= 0) {
+            return Math.floor(x);
+        } else {
+            return Math.ceil(x);
+        }
+    },
+
+    fullAddressAdjust: function (address) {
+        address = this.fullAddress(address);
+        var index = address.lastIndexOf('!');
+        return "'" + address.substring(0, index) + "'" + address.substring(index);
+    },
+
+    fullAddress: function (address) {
+        var ret = '';
+        try {
+            var index = address.lastIndexOf('!');
+            var colon = address.lastIndexOf(':');
+            var index2 = 0;
+            var index3 = 0;
+            for (var i = index + 1; i < address.length; i++) {
+                if (!this.isAlpha(address[i])) {
+                    index2 = i;
+                    break;
+                }
+            }
+            if (colon >= 0) {
+                for (var i = colon + 1; i < address.length; i++) {
+                    if (!this.isAlpha(address[i])) {
+                        index3 = i;
+                        break;
+                    }
+                }
+            }
+            if (colon >= 0) {
+                ret = address.substring(0, index + 1) + '$' + address.substring(index + 1, index2) + '$' + address.substring(index2, colon + 1) + '$' + address.substring(colon + 1, index3) + '$' + address.substring(index3);
+            } else {
+                ret = address.substring(0, index + 1) + '$' + address.substring(index + 1, index2) + '$' + address.substring(index2);
+            }
+        } catch (e) {
+            console.log(e);
+        }
+        return ret;
+    },
+
+    componentToHex: function (c) {
+        var hex = c.toString(16);
+        return hex.length == 1 ? "0" + hex : hex;
+    },
+
+    rgbToHex: function (r, g, b) {
+        return "#" + this.componentToHex(r) + this.componentToHex(g) + this.componentToHex(b);
+    },
+
+    writeToDocument: function (key, value, code) {
+        this.saveToDocument(key, value, code);
+        //if (key != "UniqueID") {
+        //    if (code == null || code == "")
+        //        return;
+        //    if (app.currentSheet != '') {
+        //        key = app.currentSheet + '!' + key;
+        //    }
+        //    key = Encode.Encode(key, code);
+        //    value = Encode.Encode(value.toString(), code);
+        //}
+        //Office.context.document.settings.set(key, value);
+        // Office.context.document.settings.saveAsync();
+    },
+
+    saveToDocument: function (key, value, code) {
+        if (key != "UniqueID") {
+            if (code == null || code == "")
+                return;
+            if (app.currentSheet != '') {
+                key = app.currentSheet + '!' + key;
+            }
+            ////////////////////////////////////////////////////////
+            // TODO: Delete me! This is for diagnosis and debugging
+            // Office.context.document.settings.set(key, value);
+            ////////////////////////////////////////////////////////
+            key = Encode.Encode(key, code);
+            value = Encode.Encode(value.toString(), code);
+        }
+        Office.context.document.settings.set(key, value);
+        Office.context.document.settings.saveAsync();
+    },
+
+    getFromDocument: function (key, code) {
+        var value = null;
+        if (code != "") {
+            if (app.currentSheet != '') {
+                key = app.currentSheet + '!' + key;
+            }
+            key = Encode.Encode(key, code);
+        }
+        try {
+            value = Office.context.document.settings.get(key);
+        }
+        catch (e) {
+            return null;
+        }
+        if (value == null)
+            return value;
+        if (code != "") {
+            value = Encode.Decode(value, code);
+        }
+        return value;
+    },
+
+    saveToSessionStorage: function (key, value) {
+
+        sessionStorage.setItem(key, value);
+    },
+
+    getFromSessionStorage: function (key) {
+
+        var value = sessionStorage.getItem(key);
+        return value;
+    },
+
+    GetWidth: function (strAddress) {
+        var idx = strAddress.indexOf('!');
+        if (idx >= 0) {
+            strAddress = strAddress.substring(idx + 1);
+        }
+        var addresses = strAddress.split(":");
+        if (addresses.length == 1)
+            return 1;
+        var alphaPart1 = new Array();
+        var alphaPart2 = new Array();
+        var i, j;
+        var nCol1 = 0;
+        var nCol2 = 0;
+        alphaPart1[0] = 0;
+        alphaPart2[0] = 0;
+        for (i = 0, j = 0; i < addresses[0].length; i++) {
+            if (this.isAlpha(addresses[0].charAt(i))) {
+                alphaPart1[i] = (addresses[0].charCodeAt(i) > 96) ? (addresses[0].charCodeAt(i) - 97) + 1 : (addresses[0].charCodeAt(i) - 65) + 1;
+            }
+        }
+        for (i = 0, j = 0; i < addresses[1].length; i++) {
+            if (this.isAlpha(addresses[1].charAt(i))) {
+                alphaPart2[i] = (addresses[1].charCodeAt(i) > 96) ? (addresses[1].charCodeAt(i) - 97) + 1 : (addresses[1].charCodeAt(i) - 65) + 1;
+            }
+        }
+        for (i = 0, j = alphaPart1.length - 1; i < alphaPart1.length; i++ , j--)
+            nCol1 += (this.powAZ(j) * alphaPart1[i]);
+
+        for (i = 0, j = alphaPart2.length - 1; i < alphaPart2.length; i++ , j--)
+            nCol2 += (this.powAZ(j) * alphaPart2[i]);
+
+        return (nCol2 - nCol1 + 1);
+    },
+
+    GetFirstCol: function (strAddress) {
+        var idx = strAddress.indexOf('!');
+        if (idx >= 0) {
+            strAddress = strAddress.substring(idx + 1);
+        }
+        var addresses = strAddress.split(":");
+        var alphaPart1 = new Array();
+        var nCol1 = 0;
+        alphaPart1[0] = 0;
+        for (i = 0, j = 0; i < addresses[0].length; i++) {
+            if (this.isAlpha(addresses[0].charAt(i))) {
+                alphaPart1[i] = (addresses[0].charCodeAt(i) > 96) ? (addresses[0].charCodeAt(i) - 97) + 1 : (addresses[0].charCodeAt(i) - 65) + 1;
+            }
+        }
+        for (i = 0, j = alphaPart1.length - 1; i < alphaPart1.length; i++ , j--)
+            nCol1 += (this.powAZ(j) * alphaPart1[i]);
+        return +nCol1;
+    },
+
+    GetFirstRow: function (strAddress) {
+        var idx = strAddress.indexOf('!');
+        if (idx >= 0) {
+            strAddress = strAddress.substring(idx + 1);
+        }
+        var addresses = strAddress.split(":");
+        var row = "";
+        for (var i = 0; i < addresses[0].length; i++) {
+            if (this.isDigit(addresses[0].charAt(i))) {
+                row += addresses[0].charAt(i);
+            }
+        }
+        return +row;
+    },
+
+    GetHeight: function (strAddress) {
+        var idx = strAddress.indexOf('!');
+        if (idx >= 0) {
+            strAddress = strAddress.substring(idx + 1);
+        }
+        var addresses = strAddress.split(":");
+        if (addresses.length == 1)
+            return 1;
+        var digitPart1 = "";
+        var digitPart2 = "";
+        var i;
+        for (i = 0, j = 0; i < addresses[0].length; i++) {
+            if (this.isDigit(addresses[0].charAt(i))) {
+                digitPart1 += addresses[0].charAt(i);
+            }
+        }
+        for (i = 0, j = 0; i < addresses[1].length; i++) {
+            if (this.isDigit(addresses[1].charAt(i))) {
+                digitPart2 += addresses[1].charAt(i);
+            }
+        }
+        return (digitPart2 - digitPart1 + 1);
+    },
+
+    GetAddress: function (nRow, nCol) {
+        var strDigits = "$" + nRow;
+        var strAlpha = "$";
+        var i;
+        for (i = 3; i >= 0; i--) {
+            var x = (this.powAZ(i + 1) - 1) / 25 - 1;
+            if (nCol > x)
+                strAlpha = strAlpha + String.fromCharCode(((nCol - x - 1) / this.powAZ(i) % 26 + 65));
+        }
+        return strAlpha + strDigits;
+    },
+
+    powAZ: function (nP) {
+        var nV = 1;
+        for (var i = 0; i < nP; i++)
+            nV *= 26;
+
+        return nV;
+    },
+
+    asyncLoop: function (iterations, func, callback) {
+        var index = 0;
+        var done = false;
+        var loop = {
+            next: function () {
+                if (done) {
+                    return;
+                }
+
+                if (index < iterations) {
+                    index++;
+                    func(loop);
+
+                } else {
+                    done = true;
+                    callback();
+                }
+            },
+
+            iteration: function () {
+                return index - 1;
+            },
+
+            break: function () {
+                done = true;
+                callback();
+            }
+        };
+        loop.next();
+        return loop;
+    },
+
+    animationCounter: 0,
+    animationEnabled: false,
+    animationElement: null,
+    intervalId: null,
+
+    toggleAnimate: function () {
+        this.animationElement = document.getElementById("progress");
+
+        if (!this.animationEnabled) {
+            this.animationEnabled = true;
+            this.animationElement.style.display = "block";
+            this.intervalId = setInterval("animate()", 100);
+        }
+        else {
+            this.animationElement.style.display = "none";
+            this.animationEnabled = false;
+            clearInterval(this.intervalId);
+        }
+    },
+
+    animate: function () {
+        this.animationElement.style.backgroundPosition = "0px " + -animationCounter + "px";
+        animationCounter = (animationCounter < 175 ? animationCounter + 5 : 0);
+    },
+
+    closeError: function () {
+        this.Toast.hideToast();
+    },
+
+    throwError: function (errTitle, errMessage) {
+        try {
+            var customError = { name: errTitle, message: errMessage };
+            throw customError;
+
+        }
+        catch (err) {
+            this.Toast.showToast(err.name, err.message);
+        }
+    },
+
+    Toast: {
+
+        Toast: "divToast",
+        Close: "btnClose",
+        Notice: "lblNotice",
+        Output: "lblOutput",
+
+        hideToast: function () {
+            if (document.getElementById(this.Toast) != null) {
+                $("#" + this.Toast).hide("slow");
+            }
+        },
+        showToast: function (title, message) {
+
+            if (document.getElementById(this.Toast) == null) {
+                this.createToast();
+            }
+
+            document.getElementById(this.Notice).innerHTML = title;
+            document.getElementById(this.Output).innerHTML = message;
+
+            $("#" + this.Toast).hide();
+            $("#" + this.Toast).show("slow");
+
+        },
+
+        createToast: function () {
+            var divToast;
+            var lblClose;
+            var btnClose;
+            var divOutput;
+            var lblOutput;
+            var lblNotice;
+
+            divToast = document.createElement("div");
+            var toastStyle = "background-color:#0094FF;" +
+                "position:absolute;" +
+                "bottom:0px;" +
+                "left:12px;" +
+                "right:12px;" +
+                "padding:5px;" +
+                "font-size:8pt;";
+            divToast.setAttribute("style", toastStyle);
+            divToast.setAttribute("id", this.Toast);
+
+            divOutput = document.createElement("div");
+            divOutput.setAttribute("id", "divOutput");
+            var outputStyle = "margin-top:0px;";
+            divOutput.setAttribute("style", outputStyle);
+
+            lblNotice = document.createElement("span");
+            lblNotice.setAttribute("id", this.Notice);
+            var labelStyle = "font-weight:bold;margin-top:0px;color:white";
+            lblNotice.setAttribute("style", labelStyle);
+
+            lblOutput = document.createElement("span");
+            lblOutput.setAttribute("id", this.Output);
+            lblOutput.setAttribute("style", "color:white");
+
+            divOutput.appendChild(lblNotice);
+            divOutput.appendChild(document.createElement("br"));
+            divOutput.appendChild(lblOutput);
+
+            divToast.appendChild(divOutput);
+
+            document.body.appendChild(divToast);
+        },
+
+        close: function () {
+            $("#" + this.Toast).hide("slow");
+        }
+    },
+
+    tooltip: function () {
+        var id = 'tt';
+        var top = 3;
+        var left = 3;
+        var maxw = 300;
+        var speed = 10;
+        var timer = 50;
+        var endalpha = 100;
+        var alpha = 0;
+        var tt, t, c, b, h;
+        var ie = document.all ? true : false;
+        return {
+            show: function (v, w) {
+                if (tt == null) {
+                    tt = document.createElement('div');
+                    tt.setAttribute('id', id);
+                    t = document.createElement('div');
+                    t.setAttribute('id', id + 'top');
+                    c = document.createElement('div');
+                    c.setAttribute('id', id + 'cont');
+                    b = document.createElement('div');
+                    b.setAttribute('id', id + 'bot');
+                    tt.appendChild(t);
+                    tt.appendChild(c);
+                    tt.appendChild(b);
+                    document.body.appendChild(tt);
+                    tt.style.opacity = 0;
+                    tt.style.filter = 'alpha(opacity=0)';
+                    document.onmousemove = this.pos;
+                }
+                tt.style.display = 'block';
+                c.innerHTML = v;
+                tt.style.width = "80%";
+                if (!w && ie) {
+                    t.style.display = 'none';
+                    b.style.display = 'none';
+                    tt.style.width = tt.offsetWidth;
+                    t.style.display = 'block';
+                    b.style.display = 'block';
+                }
+                if (tt.offsetWidth > maxw) { tt.style.width = maxw + 'px'; }
+                h = parseInt(tt.offsetHeight) + top;
+                clearInterval(tt.timer);
+                tt.timer = setInterval(function () { this.tooltip.fade(1); }, timer);
+            },
+            pos: function (e) {
+                var u = ie ? event.clientY + document.documentElement.scrollTop : e.pageY;
+                var l = ie ? event.clientX + document.documentElement.scrollLeft : e.pageX;
+                tt.style.top = (u) + 'px';
+                tt.style.left = "10%";
+            },
+            fade: function (d) {
+                var a = alpha;
+                if ((a != endalpha && d == 1) || (a != 0 && d == -1)) {
+                    var i = speed;
+                    if (endalpha - a < speed && d == 1) {
+                        i = endalpha - a;
+                    } else if (alpha < speed && d == -1) {
+                        i = a;
+                    }
+                    alpha = a + (i * d);
+                    tt.style.opacity = alpha * .01;
+                    tt.style.filter = 'alpha(opacity=' + alpha + ')';
+                } else {
+                    clearInterval(tt.timer);
+                    if (d == -1) { tt.style.display = 'none'; }
+                }
+            },
+            hide: function () {
+                if (tt != null) {
+                    clearInterval(tt.timer);
+                    tt.timer = setInterval(function () { this.tooltip.fade(-1); }, timer);
+                }
+            }
+        };
+    }(),
+
+    getUniqueId: function () {
+        var dateObject = new Date();
+        var uniqueId =
+            dateObject.getFullYear() + '' +
+            dateObject.getMonth() + '' +
+            dateObject.getDate() + '' +
+            dateObject.getTime();
+
+        return uniqueId;
+    },
+
+    validRange: function (range) {
+        if (typeof range !== "string" || !range.length)
+            return false;
+
+        var sheetIndex = range.indexOf('!');
+        if (sheetIndex !== -1) {
+            range = range.substr(sheetIndex + 1);
+        }
+        range = range.replace(/\$/g, '');
+
+        var startIndex = range.search(/[\d+]/);
+        var column = range.substring(0, startIndex).toUpperCase();
+        var row = parseInt(range.substring(startIndex), 10);
+        return (column >= "A" && ((column.length < 3 && column <= "ZZ") || (column.length == 3 && column <= "XFD")) && (row >= 1 && row <= 1048576));
+    },
+
+    GetInternalAddress: function (range, col, row) {
+        var realCol = +this.GetFirstCol(range) + col;
+        var realRow = +this.GetFirstRow(range) + row;
+        return this.GetAddress(realRow, realCol);
+    },
+
+    dataMax: null,
+    dataMin: null,
+    dec_tbl: [0, 63, 0, 0, 0, 64, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,
+        0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        20, 21, 22, 23, 24, 25, 26, 0, 0, 0, 0, 0, 0, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+        37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52], // start from the 2nd element
+
+    enc_tbl: [0, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
+        80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106,
+        107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122,
+        48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 43, 47], // start from the 2nd element
+
+    Encode256S: function (n, data) {
+        var str = '';
+        var binnum = [];
+        for (var i = 0; i < n; i++) {
+            binnum.push(this.trunc(((data[i] - this.dataMin) * 255 / (this.dataMax - this.dataMin) + 0.5) + 1));
+        }
+        var pos = 1;
+        var idx;
+        for (var i = 0; i <= n; i++) {
+            if (pos == 1) {
+                idx = 1;
+                if (i < n) {
+                    idx += this.trunc((binnum[i] - 1) / 4);
+                    str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+                }
+            } else if (pos == 2) {
+                idx = this.trunc(1 + ((binnum[i - 1] - 1) - this.trunc((binnum[i - 1] - 1) / 4) * 4) * 16);
+                if (i < n) {
+                    idx += this.trunc((binnum[i] - 1) / 16);
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+            } else if (pos == 3) {
+                idx = this.trunc(1 + ((binnum[i - 1] - 1) - this.trunc((binnum[i - 1] - 1) / 16) * 16) * 4);
+                if (i < n) {
+                    idx += this.trunc((binnum[i] - 1) / 64);
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+                idx = 1;
+                if (i < n) {
+                    idx += this.trunc((binnum[i] - 1) - this.trunc((binnum[i] - 1) / 64) * 64);
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+            }
+            pos++;
+            if (pos == 4) {
+                pos = 1;
+            }
+        }
+
+        return str;
+    },
+
+    Encode256D: function (n, data) {
+        var bin1 = [];
+        var bin2 = [];
+
+        var rel;
+        for (var i = 0; i < n; i++) {
+            rel = this.trunc((data[i] - this.dataMin) * (256 * 256 - 1) / (this.dataMax - this.dataMin) + 0.5);
+            bin1.push(this.trunc((rel / 256) + 1));
+            bin2.push(this.trunc((rel - (bin1[i] - 1) * 256) + 1));
+        }
+        var str = '';
+        var pos = 1;
+        var idx;
+        for (var i = 0; i <= n; i++) {
+            if (pos == 1) {
+                idx = 1;
+                if (i < n) {
+                    idx += (bin1[i] - 1) / 4;
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+                idx = 1;
+                if (i < n) {
+                    idx += this.trunc(((bin1[i] - 1) - this.trunc((bin1[i] - 1) / 4) * 4) * 16);
+                    idx += this.trunc((bin2[i] - 1) / 16);
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+            } else if (pos == 2) {
+                idx = this.trunc(1 + ((bin2[i - 1] - 1) - this.trunc((bin2[i - 1] - 1) / 16) * 16) * 4);
+                if (i < n) {
+                    idx += (bin1[i] - 1) / 64;
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+                idx = 1;
+                if (i < n) {
+                    idx += this.trunc((bin1[i] - 1) - this.trunc((bin1[i] - 1) / 64) * 64);
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+            } else if (pos == 3) {
+                idx = 1 + (bin2[i - 1] - 1) / 4;
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+                idx = this.trunc(1 + ((bin2[i - 1] - 1) - this.trunc((bin2[i - 1] - 1) / 4) * 4) * 16);
+                if (i < n) {
+                    idx += (bin1[i] - 1) / 16;
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+                idx = 1;
+                if (i < n) {
+                    idx += this.trunc(((bin1[i] - 1) - this.trunc((bin1[i] - 1) / 16) * 16) * 4);
+                    idx += (bin2[i] - 1) / 64;
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+                idx = 1;
+                if (i < n) {
+                    idx += this.trunc((bin2[i] - 1) - this.trunc((bin2[i] - 1) / 64) * 64);
+                }
+                str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+            }
+            pos++;
+            if (pos == 4) {
+                pos = 1;
+            }
+        }
+        return str;
+    },
+
+    Encode256B: function (n, data) {
+        var bin1;
+        var bin2;
+        var bin3;
+        var d;
+        var idx;
+        var str = '';
+        var c = 0;
+        while (c < n) {
+            d = 128;
+            bin1 = 1;
+            for (var i = 1; i <= 8; i++) {
+                if (c < n) {
+                    bin1 += this.trunc(data[c++]) * d;
+                } else {
+                    break;
+                }
+                d /= 2;
+            }
+            d = 128;
+            bin2 = 1;
+            for (var i = 1; i <= 8; i++) {
+                if (c < n) {
+                    bin2 += this.trunc(data[c++]) * d;
+                } else {
+                    break;
+                }
+                d /= 2;
+            }
+            d = 128; bin3 = 1;
+            for (var i = 1; i <= 8; i++) {
+                if (c < n) {
+                    bin3 += this.trunc(data[c++]) * d;
+                } else {
+                    break;
+                }
+                d /= 2;
+            }
+
+            // encode 3 bins into 4 letters
+            idx = (bin1 - 1) / 4 + 1;
+            str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+            idx = this.trunc(((bin1 - 1) - this.trunc((bin1 - 1) / 4) * 4) * 16 + (bin2 - 1) / 16 + 1);
+            str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+            idx = this.trunc(((bin2 - 1) - this.trunc((bin2 - 1) / 16) * 16) * 4 + (bin3 - 1) / 64 + 1);
+            str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+
+            idx = this.trunc(((bin3 - 1) - this.trunc((bin3 - 1) / 64) * 64) + 1);
+            str += String.fromCharCode(this.enc_tbl[this.trunc(idx)]);
+        }
+
+        return str;
+    },
+
+    writeError: function (error) {
+        //Excel.run(function (ctx) {
+        //    var sheets = ctx.workbook.worksheets;
+        //    var sh = sheets.getItemOrNullObject("DM_Errors");
+        //    return ctx.sync().then(function () {
+        //        if (sh.isNullObject) {
+        //            sh = sheets.add("DM_Errors");
+        //        }
+        //        var rng = sh.getRange("A1");
+        //        rng.insert(Excel.InsertShiftDirection.down);
+        //        sh.getRange("A1").values = [[error]];
+        //        return ctx.sync();
+        //    });
+        //});
+        console.log(error);
+    }
+};

@@ -1,0 +1,515 @@
+﻿////////////////////////////////////////////////////////
+// Common definitions shared between Solver and DM apps //
+////////////////////////////////////////////////////////
+
+var def = {
+
+    // #cells written on generated report to be synced in one batch
+    // should choose the largest possible value that doesn't break Excel Online
+    // sync()-ing more data less frequently should be more efficient
+    // TODO: revisit this when things on MS side stabilize
+    MAX_DATA_BATCH_SYNC_SIZE: 3000,
+    // same as above, but for range formatting batches, totally experimental limit
+    // TODO: revisit this when things on MS side stabilize
+    MAX_FORMAT_BATCH_SYNC_SIZE: 50,
+    // same as above, but for charts batches, totally experimental limit
+    // TODO: revisit this when things on MS side stabilize
+    MAX_CHART_BATCH_SYNC_SIZE: 50,
+
+    analysisType: {
+        OPTIMIZATION: 1,
+        SIMULATION: 2,
+        CALCULATION: 3,
+        DATA_MINING: 4
+    },
+
+    varPlot: {
+        LOWER_BOUND: 0,
+        UPPER_BOUND: 1,
+        MID_POINT: 2,
+        CURRENT: 3,
+        RANDOM: 4,
+        GRAD_AT_A: 5,
+        REV_GRAD_AT_A: 6
+    },
+
+    scoringType: {
+        PREDICT: 1,
+        FORECAST: 2,
+        TRANSFORM: 3,
+        POSTERIOR: 4
+    },
+
+    varyParams: {
+        SIMULTANEOUSLY: 0,
+        ONE_AT_A_TIME: 1,
+        INDEPENDENTLY: 2
+    },
+
+    distInfo: {
+        psibeta: {
+            params: 'shape1,shape2',
+            formula: 'PsiBeta(1.5,3)'
+        },
+
+        psinormal: {
+            altForm: 'psinormalalt',
+            params: 'mean,stdev',
+            formula: 'PsiNormal(0, 1)'
+        },
+        psinormalalt: {
+            altForm: 'psinormal',
+            nonEditableParams: ['mean', 'stdev'],
+            editableParams: ['percentile'],
+            formula: 'PsiNormalAlt("mean",0,"stdev",1)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiNormalAlt(10%,1,90%,2)'
+        },
+
+        psiexponential: {
+            altForm: 'psiexponentialalt',
+            params: 'mean',
+            formula: 'PsiExponential(1)'
+        },
+        psiexponentialalt: {
+            altForm: 'psiexponential',
+            nonEditableParams: ['mean', 'stdev'],
+            editableParams: ['percentile'],
+            formula: 'PsiExponentialAlt("mean",1)'
+            //params: 'Percentile,Value',
+            //formula: 'PsiExponentialAlt(10%,0.10536)'
+        },
+
+        psigamma: {
+            altForm: 'psigammaalt',
+            params: 'shape,scale',
+            formula: 'PsiGamma(4,1)'
+        },
+        psigammaalt: {
+            altForm: 'psigamma',
+            nonEditableParams: ['shape', 'scale', 'mean', 'stdev'],
+            editableParams: ['percentile'],
+            formula: 'PsiGammaAlt("shape",4,"scale",1)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiGammaAlt(10%,1.74477,90%,6.68078)'
+        },
+
+        psilognorm2: {
+            params: 'logMean,logStdev',
+            formula: 'PsiLogNorm2(0,0.5)'
+        },
+
+        psilognormal: {
+            altForm: 'psilognormalalt',
+            params: 'mean,stdev',
+            formula: 'PsiLogNormal(10,5)'
+        },
+        psilognormalalt: {
+            altForm: 'psilognormal',
+            nonEditableParams: ['mean', 'stdev'],
+            editableParams: ['percentile'],
+            formula: 'PsiLogNormalAlt("mean",10,"stdev",5)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiLogNormalAlt(10%,4.88238,90%,16.3854)'
+        },
+
+        psipert: {
+            altForm: 'psipertalt',
+            params: 'min,likely,max',
+            formula: 'PsiPert(0,1,3)'
+        },
+        psipertalt: {
+            altForm: 'psipert',
+            nonEditableParams: ['min', 'likely', 'max', 'mean', 'stdev'],
+            editableParams: ['percentile'],
+            formula: 'PsiPertAlt("min",0,"likely",1,"max",3)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2,Percentile #3,Value #3',
+            //formula: 'PsiPertAlt(10%,0.45908,50%,1.12744,90%,1.93337)'
+        },
+
+        psitriangular: {
+            params: 'min,likely,max',
+            formula: 'PsiTriangular(0,1,3)'
+        },
+        psiuniform: {
+            params: 'lower,upper',
+            formula: 'PsiUniform(0,1)'
+        },
+
+        psiweibull: {
+            altForm: 'psiweibullalt',
+            params: 'shape,scale',
+            formula: 'PsiWeibull(2,1)'
+        },
+        psiweibullalt: {
+            altForm: 'psiweibull',
+            nonEditableParams: ['mean', 'stdev', 'shape', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiWeibullAlt("shape",2,"scale",1)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiWeibullAlt(10%,0.32459,90%,1.51743)'
+        },
+
+        // alt for BetaGen behaves strange
+        psibetagen: {
+            altForm: 'psibetagenalt',
+            params: 'shape1,shape2,min,max',
+            formula: 'PsiBetaGen(1.5,3,0,10)'
+        },
+        psibetagenalt: {
+            altForm: 'psibetagen',
+            nonEditableParams: ['shape1', 'shape2', 'min', 'max'],
+            editableParams: ['percentile'],
+            formula: 'PsiBetaGenAlt("shape1",1.5,"shape2",3,"min",0,"max",10)'
+            // params: 'shape1,shape2,min,max',
+            // formula: 'PsiBetaGen(1.5,3,0,10)'
+        },
+
+        psibetasubj: {
+            params: 'min,likely,mean,max',
+            formula: 'PsiBetaSubj(0,1,2,5)'
+        },
+        psichisquare: {
+            params: 'df',
+            formula: 'PsiChiSquare(5)'
+        },
+        psierlang: {
+            params: 'shape,scale',
+            formula: 'PsiErlang(2,1)'
+        },
+        psimyerson: {
+            params: 'pctBot,pct50,pctTop,TotalTail',
+            formula: 'PsiMyerson(-3,0,3,0.5)'
+        },
+        psinormalskew: {
+            params: 'min,max,skew',
+            formula: 'PsiNormalSkew(-3,3,0)'
+        },
+
+        psipareto: {
+            altForm: 'psiparetoalt',
+            params: 'shape,scale',
+            formula: 'PsiPareto(20,100)'
+        },
+        psiparetoalt: {
+            altForm: 'psipareto',
+            nonEditableParams: ['shape', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiParetoAlt("shape",20,"scale",100)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiParetoAlt(10%,100.528,90%,112.202)'
+        },
+
+        psipareto2: {
+            altForm: 'psipareto2alt',
+            params: 'scale,shape',
+            formula: 'PsiPareto2(100,11)'
+        },
+        psipareto2alt: {
+            altForm: 'psipareto2',
+            nonEditableParams: ['scale', 'shape'],
+            editableParams: ['percentile'],
+            formula: 'PsiPareto2Alt("scale",100,"shape",11)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiPareto2Alt(10%,0.96242,90%,23.2847)'
+        },
+
+        psirayleigh: {
+            altForm: 'psirayleighalt',
+            params: 'scale',
+            formula: 'PsiRayleigh(1)'
+        },
+        psirayleighalt: {
+            altForm: 'psirayleigh',
+            nonEditableParams: ['mean', 'stdev', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiRayleighAlt("scale",1)'
+            //params: 'Percentile,Value',
+            //formula: 'PsiRayleighAlt(10%,0.45904)'
+        },
+
+
+        psistudent: {
+            altForm: 'psistudentalt',
+            params: 'df',
+            formula: 'PsiStudent(5)'
+        },
+        psistudentalt: {
+            altForm: 'psistudent',
+            nonEditableParams: ['df'],
+            editableParams: ['percentile'],
+            formula: 'PsiStudentAlt("df",5)'
+            //params: 'Percentile,Value',
+            //formula: 'PsiStudentAlt(10%,-1.47588)'
+        },
+
+        psitrianggen: {
+            params: 'bottom,likely,top,botperc,topperc',
+            formula: 'PsiTriangGen(1,2,4,0.1,0.9)'
+        },
+
+        psicauchy: {
+            altForm: 'psicauchyalt',
+            params: 'loc,scale',
+            formula: 'PsiCauchy(0,50)'
+        },
+        psicauchyalt: {
+            altForm: 'psicauchy',
+            nonEditableParams: ['mu','lambda'],
+            editableParams: ['percentile'],
+            formula: 'PsiCauchyAlt("mu", 0, "lambda",50)'
+            //params: 'Percentile,Value',
+            //formula: 'PsiCauchyAlt(10%,-153.884)'
+        },
+
+        psierf: {
+            altForm: 'psierfalt',
+            params: 'scale',
+            formula: 'PsiErf(1)'
+        },
+        psierfalt: {
+            altForm: 'psierf',
+            nonEditableParams: ['stdev', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiErfAlt("scale",1)'
+            //params: 'Percentile,Value',
+            //formula: 'PsiErfAlt(10%,-0.90619)'
+        },
+
+        psiinvnormal: {
+            altForm: 'psiinvnormalalt',
+            params: 'mean,scale',
+            formula: 'PsiInvNormal(10,40)'
+        },
+        psiinvnormalalt: {
+            altForm: 'psiinvnormal',
+            nonEditableParams: ['mean', 'scale', 'stdev'],
+            editableParams: ['percentile'],
+            formula: 'PsiInvNormalAlt("mean",10,"scale",40)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiInvNormalAlt(10%,4.85745,90%,16.5334)'
+        },
+
+        psilaplace: {
+            altForm: 'psilaplacealt',
+            params: 'mean,scale',
+            formula: 'PsiLaplace(0,1)'
+        },
+        psilaplacealt: {
+            altForm: 'psilaplace',
+            nonEditableParams: ['mean', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiLaplaceAlt("mean",0, "scale",1)'
+            //params: 'Percentile,Value',
+            //formula: 'PsiLaplaceAlt(10%,-1.60944)'
+        },
+
+        psilogistic: {
+            altForm: 'psilogisticalt',
+            params: 'mean,scale',
+            formula: 'PsiLogistic(0,1)'
+        },
+        psilogisticalt: {
+            altForm: 'psilogistic',
+            nonEditableParams: ['mean', 'scale', 'stdev'],
+            editableParams: ['percentile'],
+            formula: 'PsiLogisticAlt("mean",0,"scale",1)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiLogisticAlt(10%,-2.19722,90%,2.19722)'
+        },
+
+        psiloglogistic: {
+            altForm: 'psiloglogisticalt',
+            params: 'loc,scale,shape',
+            formula: 'PsiLogLogistic(0,1,5)'
+        },
+        psiloglogisticalt: {
+            altForm: 'psiloglogistic',
+            nonEditableParams: ['loc', 'scale', 'shape'],
+            editableParams: ['percentile'],
+            formula: 'PsiLogLogisticAlt("loc",0,"scale",1,"shape",5)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2,Percentile #3,Value #3',
+            //formula: 'PsiLogLogisticAlt(10%,0.64439,50%,1,90%,1.55185)'
+        },
+
+        psimaxextreme: {
+            altForm: 'psimaxextremealt',
+            params: 'mode,scale',
+            formula: 'PsiMaxExtreme(0,1)'
+        },
+        psimaxextremealt: {
+            altForm: 'psimaxextreme',
+            nonEditableParams: ['mean', 'stdev', 'mode', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiMaxExtremeAlt("mode",0,"scale",1)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiMaxExtremeAlt(10%,-0.83403,90%,2.25037)'
+        },
+
+        psiminextreme: {
+            altForm: 'psiminextremealt',
+            params: 'mode,scale',
+            formula: 'PsiMinExtreme(0,1)'
+        },
+        psiminextremealt: {
+            altForm: 'psiminextreme',
+            nonEditableParams: ['mean', 'stdev', 'mode', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiMinExtremeAlt("mode",0,"scale",1)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiMinExtremeAlt(10%,-2.25037,90%,0.83403)'
+        },
+
+        psipearson5: {
+            altForm: 'psipearson5alt',
+            params: 'shape,scale',
+            formula: 'PsiPearson5(10,100)'
+        },
+        psipearson5alt: {
+            altForm: 'psipearson5',
+            nonEditableParams: ['shape', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiPearson5Alt("shape",10,"scale",100)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2',
+            //formula: 'PsiPearson5Alt(10%,7.03928,90%,16.0738)'
+        },
+
+        psipearson6: {
+            altForm: 'psipearson6alt',
+            params: 'shape1,shape2,scale',
+            formula: 'PsiPearson6(10,11,10)'
+        },
+        psipearson6alt: {
+            altForm: 'psipearson6',
+            nonEditableParams: ['shape1', 'shape2', 'scale'],
+            editableParams: ['percentile'],
+            formula: 'PsiPearson6Alt("shape1",10,"shape2",11,"scale",10)'
+            //params: 'Percentile #1,Value #1,Percentile #2,Value #2,Percentile #3,Value #3',
+            //formula: 'PsiPearson6Alt(10%,5.10964,50%,9.06289,90%,15.9908)'
+        },
+        psiburr12: {
+            params: 'loc,scale,shape1,shape2',
+            formula: 'PsiBurr12(0,1,2,3)'
+        },
+        psidagum: {
+            params: 'loc,scale,shape1,shape2',
+            formula: 'PsiDagum(0,1,2,3)'
+        },
+        psidbltriang: {
+            params: 'min,likely,max,prob',
+            formula: 'PsiDblTriang(0,0.5,1,0.4)'
+        },
+        psifdist: {
+            params: 'df1,df2',
+            formula: 'PsiFdist(4,3)'
+        },
+        psifatiguelife: {
+            params: 'loc,scale,shape',
+            formula: 'PsiFatigueLife(0,1,0.5)'
+        },
+        psifrechet: {
+            params: 'loc,scale,shape',
+            formula: 'PsiFrechet(0,1,2)'
+        },
+        psihypsecant: {
+            params: 'loc,scale',
+            formula: 'PsiHypSecant(0,1)'
+        },
+        psijohnsonsb: {
+            params: 'shape1,shape2,min,max',
+            formula: 'PsiJohnsonSB(2,2,0,1)'
+        },
+        psijohnsonsu: {
+            params: 'shape1,shape2,loc,scale',
+            formula: 'PsiJohnsonSU(2,2,0,1)'
+        },
+        psikumaraswamy: {
+            params: 'shape1,shape2,min,max',
+            formula: 'PsiKumaraswamy(2,3,0,1)'
+        },
+        psilevy: {
+            params: 'mean,scale',
+            formula: 'PsiLevy(0,1)'
+        },
+        psireciprocal: {
+            params: 'min,max',
+            formula: 'PsiReciprocal(1,2)'
+        },
+        psibernoulli: {
+            params: 'prob',
+            formula: 'PsiBernoulli(0.5)'
+        },
+        psibinomial: {
+            params: 'trials,prob',
+            formula: 'PsiBinomial(10,0.5)'
+        },
+        psigeometric: {
+            params: 'prob',
+            formula: 'PsiGeometric(0.5)'
+        },
+        psihypergeo: {
+            params: 'trials,suc,pop',
+            formula: 'PsiHyperGeo(5,5,10)'
+        },
+        psiintuniform: {
+            params: 'lower,upper',
+            formula: 'PsiIntUniform(0,10)'
+        },
+        psilogarithmic: {
+            params: 'shape',
+            formula: 'PsiLogarithmic(0.5)'
+        },
+        psinegbinomial: {
+            params: 'suc,prob',
+            formula: 'PsiNegBinomial(5, 0.5)'
+        },
+        psipoisson: {
+            params: 'mean',
+            formula: 'PsiPoisson(1)'
+        },
+        psicumul: {
+            params: 'min,max,values,probs',
+            formula: 'PsiCumul(10,50,{10,20,30},{0.3,0.5,0.9})'
+        },
+        psicumuld: {
+            params: 'min,max,values,probs',
+            formula: 'PsiCumulD(10,50,{10,20,30},{0.9,0.5,0.3})'
+        },
+        psidiscrete: {
+            params: 'values,weights',
+            formula: 'PsiDiscrete({10,20,30,40},{10,40,40,10})'
+        },
+        psidisuniform: {
+            params: 'values',
+            formula: 'PsiDisUniform({10,20,30,40})'
+        },
+        psigeneral: {
+            params: 'min,max,values,weights',
+            formula: 'PsiGeneral(10,50,{15,25,35,45},{40,30,20,10})'
+        },
+        psihistogram: {
+            params: 'min,max,weights',
+            formula: 'PsiHistogram(0,4,{2,1,2,1})'
+        },
+        psiresample: {
+            params: 'resample',
+            formula: 'PsiResample({1,2,3,4,5})'
+        },
+        psisip: {
+            params: 'sip',
+            formula: 'PsiSip({1,2,3,4,5})'
+        },
+        psislurp: {
+            params: 'slurp,column',
+            formula: 'PsiSlurp({1,2,3,4,5}, 1)'
+        },
+        psimetalog: {
+            params: 'min,max,coef',
+            formula: 'PsiMetalog(null,null,{33.4,4.4,-1.5})'
+        },
+        psimetalogspt: {
+            params: 'min,max,qtl,prob',
+            formula: 'PsiMetalogSPT(null,null,{35,50,75},0.1)'
+        }
+    }
+};

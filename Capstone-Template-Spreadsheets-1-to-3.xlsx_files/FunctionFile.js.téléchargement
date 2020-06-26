@@ -1,0 +1,1514 @@
+﻿// The initialize function must be run each time a new page is loaded.
+var charts = [];
+var extraParams = "";
+var controller = null;
+
+function initPage() {
+
+    // TODO this re-enables alerts....probably want to get rid of this 
+    // delete window.alert;
+    charts.push({
+        name: 'xlmLiftChart',
+        friendlyName: 'Lift Chart',
+        width: 400,
+        height: 400
+    });
+    charts.push({
+        name: 'xlmDecileChart',
+        friendlyName: 'Decile Chart',
+        width: 400,
+        height: 400
+    });
+    charts.push({
+        name: 'xlmROCChart',
+        friendlyName: 'ROC Chart',
+        width: 400,
+        height: 400
+    });
+    charts.push({
+        name: 'xlmRROCChart',
+        friendlyName: 'RROC Chart',
+        width: 400,
+        height: 400
+    });
+    charts.push({
+        name: 'xlmGainChart',
+        friendlyName: 'Gain Chart',
+        width: 400,
+        height: 450
+    });
+    charts.push({
+        name: 'xlmACFTrainData',
+        friendlyName: 'ACF Training Data',
+        width: 380,
+        height: 275
+    });
+    charts.push({
+        name: 'xlmACFValidData',
+        friendlyName: 'ACF Validation Data',
+        width: 380,
+        height: 275
+    });
+    charts.push({
+        name: 'xlmACVFTrainData',
+        friendlyName: 'ACVF Training Data',
+        width: 380,
+        height: 275
+    });
+    charts.push({
+        name: 'xlmACVFValidData',
+        friendlyName: 'ACVF Validation Data',
+        width: 380,
+        height: 275
+    });
+    charts.push({
+        name: 'xlmPACFTrainData',
+        friendlyName: 'PACF Training Data',
+        width: 380,
+        height: 275
+    });
+    charts.push({
+        name: 'xlmPACFValidData',
+        friendlyName: 'PACF Validation Data',
+        width: 380,
+        height: 275
+    });
+    charts.push({
+        name: 'xlmHCDGramData',
+        friendlyName: 'Dendrogram for Hierarchical Clustering',
+        width: 800,
+        height: 600
+    });
+    charts.push({
+        name: 'xlmTSTrainData',
+        friendlyName: 'Time Series Training Data',
+        width: 500,
+        height: 400
+    });
+    charts.push({
+        name: 'xlmTSValData',
+        friendlyName: 'Time Series Validation Data',
+        width: 500,
+        height: 400
+    });
+    charts.push({
+        name: 'xlmTSTestData',
+        friendlyName: 'Time Series Test Data',
+        width: 500,
+        height: 400
+    });
+    charts.push({
+        name: 'xlmFSChart',
+        friendlyName: 'Feature Importance Chart',
+        width: 800,
+        height: 600
+    });
+    charts.push({
+        name: 'xlmTMScreeChart',
+        friendlyName: 'Scree Plot',
+        width: 800,
+        height: 600
+    });
+    charts.push({
+        name: 'xlmTMZipfPlot',
+        friendlyName: 'Zipf Plot',
+        width: 800,
+        height: 600
+    });
+    charts.push({
+        name: 'xlmTMCDMPlot',
+        friendlyName: 'Document-Concept Scatter Plot',
+        width: 900,
+        height: 640
+    });
+    charts.push({
+        name: 'xlmTMCTMPlot',
+        friendlyName: 'Term-Concept Scatter Plot',
+        width: 900,
+        height: 640
+    });
+    charts.push({
+        name: 'xlmFullCTreeDiagram',
+        friendlyName: 'Full Classification Tree',
+        width: 740,
+        height: 520
+    });
+    charts.push({
+        name: 'xlmBestCTreeDiagram',
+        friendlyName: 'Best Classification Tree',
+        width: 740,
+        height: 520
+    });
+    charts.push({
+        name: 'xlmMinErrorCTreeDiagram',
+        friendlyName: 'Minimum Error Classification Tree',
+        width: 740,
+        height: 520
+    });
+    charts.push({
+        name: 'xlmUserCTreeDiagram',
+        friendlyName: 'User Classification Tree',
+        width: 740,
+        height: 520
+    });
+    charts.push({
+        name: 'xlmFullRTreeDiagram',
+        friendlyName: 'Full Regression Tree',
+        width: 740,
+        height: 520
+    });
+    charts.push({
+        name: 'xlmBestRTreeDiagram',
+        friendlyName: 'Best Regression Tree',
+        width: 740,
+        height: 520
+    });
+    charts.push({
+        name: 'xlmMinErrorRTreeDiagram',
+        friendlyName: 'Minimum Error Regression Tree',
+        width: 740,
+        height: 520
+    });
+    charts.push({
+        name: 'xlmUserRTreeDiagram',
+        friendlyName: 'User Regression Tree',
+        width: 740,
+        height: 520
+    });
+        //Excel.run(function (ctx) {
+        //    ctx.workbook.worksheets.onActivated.add(checkCharts);
+        //    return ctx.sync();
+        //})
+}
+
+function readDmWorkflow() {
+    return common.readAppSetting("xlmDmWorkFlow").then(function (ret) {
+        if (typeof ret !== "string") {
+            ret = JSON.stringify(ret);
+        }
+        return ret;
+    });
+}
+
+function saveDmWorkflow(workflowJson) {
+    var flow = (typeof workflowJson === "string" ? JSON.parse(workflowJson) : workflowJson);
+    return common.saveAppSetting("xlmDmWorkFlow", flow);
+}
+
+function deleteDmWorkflow() {
+    common.deleteAppSetting("xlmDmWorkFlow");
+}
+
+function openFlowDialog(fid, params, extraQueryParams, control) {
+
+    if (extraQueryParams && extraQueryParams !== "") {
+        extraParams = "&" + extraQueryParams;
+    } else {
+        extraParams = "";
+    }
+    controller = control;
+
+    return Excel.run(function (context) {
+        var basename = "custom";
+        var removeCount = 110;
+        if (params && params.length > 5) {
+            var paramsobj = JSON.parse(params);
+            if (paramsobj.wksheet || (paramsobj.modelData && paramsobj.modelData.wksheet)) {
+                var params_worksheet = (paramsobj.wksheet ? paramsobj.wksheet : paramsobj.modelData.wksheet);
+                var sheet = context.workbook.worksheets.getItem(params_worksheet);
+                var nameVal;
+                sheet.activate();
+
+                var sheetName;
+
+                for (var i = 1; i < removeCount; i++) {
+                    sheetName = sheet.names.getItemOrNullObject(basename + '_' + i);
+                    if (sheetName) {
+                        sheetName.delete();
+                    }
+                }
+                var charCount = 200;
+                if (params.length > charCount) {
+                    var beg = 0;
+                    for (var j = 1; beg < params.length; j++) {
+                        nameVal = params.substr(beg, charCount);
+                        nameVal = nameVal.replace(/"/g, '""');
+                        sheetName = sheet.names.add(basename + '_' + j, '\'' + nameVal, "");
+                        sheetName.visible = false;
+                        beg += charCount;
+                        charCount = Math.min(charCount, params.length - beg);
+                    }
+                } else {
+                    nameVal = params.replace(/"/g, '""');
+                    sheetName = sheet.names.add(basename + '_1', '\'' + nameVal, "");
+                    sheetName.visible = false;
+                }
+            }
+        } else {
+            // remove any existing names that might be there
+            var current_sheet = context.workbook.worksheets.getActiveWorksheet();
+            var current_named_item;
+            for (var k = 1; k < removeCount; k++) {
+                current_named_item = current_sheet.names.getItemOrNullObject(basename + '_' + k);
+                if (current_named_item) {
+                    current_named_item.delete();
+                }
+            }
+        }
+        return context.sync().then(function () {
+            openXLMinerDialog(fid);
+        }).catch(function () {
+            openXLMinerDialog(fid);
+        });
+    });
+}
+
+function openXLMinerDialog(xlm_func_id) {
+    switch (xlm_func_id) {
+        case 0:
+            common.getDataWS();
+            break;
+        case 1:
+            common.getdataDB();
+            break;
+        case 2:
+            common.getdataFF();
+            break;
+        case 3:
+            common.getdataSampleBD();
+            break;
+        case 4:
+            common.getdataSummBD();
+            break;
+        case 5:
+            common.getdataResultsBD();
+            break;
+        case 10:
+            missingData();
+            break;
+        case 11:
+            binCont();
+            break;
+        case 12:
+            catDummies();
+            break;
+        case 13:
+            catScores();
+            break;
+        case 14:
+            reduceCat();
+            break;
+        case 15:
+            PCA();
+            break;
+        case 16:
+            featureSelection();
+            break;
+        case 17:
+            rescale();
+            break;
+        case 20:
+            kMeans();
+            break;
+        case 21:
+            hierarchical();
+            break;
+        case 30:
+            tsPartition();
+            break;
+        case 40:
+        case 42:
+            arimaModel();
+            break;
+        case 41:
+            lagAnalysis();
+            break;
+        case 50:
+            exponential();
+            break;
+        case 51:
+            doubleExpo();
+            break;
+        case 52:
+            movingAverage();
+            break;
+        case 53:
+            HW1();
+            break;
+        case 54:
+            HW2();
+            break;
+        case 55:
+            HW3();
+            break;
+        case 80:
+            associateRules();
+            break;
+        case 90:
+            standardPartition();
+            break;
+        case 91:
+            partitionWithOversampling();
+            break;
+        case 100:
+            score();
+            break;
+        case 200:
+            textMining();
+            break;
+        case 600:
+            classifyCT();
+            break;
+        case 601:
+            classifyDA();
+            break;
+        case 602:
+            classifyKNN();
+            break;
+        case 603:
+            classifyLR();
+            break;
+        case 604:
+            classifyNB();
+            break;
+        case 605:
+            classifyNNM();
+            break;
+        case 610:
+            classifyRT();
+            break;
+        case 611:
+            classifyNNA();
+            break;
+        case 612:
+            classifyBagging();
+            break;
+        case 613:
+            classifyBoosting();
+            break;
+        case 700:
+            predictKNN();
+            break;
+        case 701:
+            predictLR();
+            break;
+        case 702:
+            predictNNM();
+            break;
+        case 703:
+            predictRT();
+            break;
+        case 706:
+            predictERT();
+            break;
+        case 709:
+            predictNNA();
+            break;
+        case 710:
+            predictBagging();
+            break;
+        case 711:
+            predictBoosting();
+            break;
+        case 1000:
+            newData();
+            break;
+        case 1001:
+            MapFeatures();
+            break;
+    }
+}
+
+function checkCharts(sh, storageSignalKey, storageValueKey) {
+    return Excel.run(function (context) {
+        var sheet = context.workbook.worksheets.getItem(sh);
+        var sig_k = (storageSignalKey ? storageSignalKey : "newChartDescriptions"), val_k = (storageValueKey ? storageValueKey : "chartDescriptions");
+        var chartindices = [];
+        var chartspecs = [];
+        var chartnames = [];
+        var n = [];
+        for (var i = 0; i < charts.length; i++) {
+            n.push(sheet.names.getItemOrNullObject(charts[i].name));
+        }
+        return context.sync().then(function () {
+            for (var i = 0; i < charts.length; i++) {
+                if (!n[i].isNullObject) {
+                    chartindices.push(i);
+                    chartnames.push(n[i]);
+                    n[i].load('value');
+                }
+            }
+            return context.sync().then(function () {
+                for (var i = 0; i < chartindices.length; i++) {
+                    if (charts[chartindices[i]].name === "xlmLiftChart" ||
+                        charts[chartindices[i]].name === "xlmGainChart" ||
+                        charts[chartindices[i]].name === "xlmDecileChart" ||
+                        charts[chartindices[i]].name === "xlmROCChart" ||
+                        charts[chartindices[i]].name === "xlmRROCChart") {
+                        var range = sheet.getRange(chartnames[i].value);
+                        chartspecs.push(range);
+                        range.load('values');
+                    } else {
+                        chartspecs.push(chartnames[i].value);
+                    }
+                }
+                return context.sync().then(function () {
+                    var chartDescriptions = {};
+                    var ch = [];
+                    for (var i = 0; i < chartindices.length; i++) {
+                        var spec;
+                        if (charts[chartindices[i]].name === "xlmLiftChart" ||
+                            charts[chartindices[i]].name === "xlmGainChart" ||
+                            charts[chartindices[i]].name === "xlmDecileChart" ||
+                            charts[chartindices[i]].name === "xlmROCChart" ||
+                            charts[chartindices[i]].name === "xlmRROCChart") {
+                            if (chartspecs[i].values) {
+                                spec = chartspecs[i].values[0][0];
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            if (chartspecs[i]) {
+                                spec = chartspecs[i];
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        ch.push({
+                            chartType: charts[chartindices[i]].name,
+                            chartName: charts[chartindices[i]].friendlyName,
+                            chartSpec: spec,
+                            // fit the chart to the 800x600 DMCharts dialog accounting for its elememts
+                            chartWidth: 740,
+                            chartHeight: 460
+                        });
+                    }
+                    chartDescriptions.charts = ch;
+                    addinAdapter.setStorageValue(val_k, chartDescriptions);
+                    addinAdapter.setStorageValue(sig_k, "true");
+                }).catch(common.errorHandler);
+            });
+        });
+    });
+}
+
+function chartWizard(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(900, 600, '/dm/webaddins/dmapp/AppUI/ChartWizard.html', '?app=1');
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function featureSelection(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 755, '/dm/webaddins/dmapp/AppUI/FeatureSelection.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function existingCharts(args) {
+    showCharts(args);
+    //    if (args) {
+    //        args.completed();
+    //    }
+}
+
+function missingData(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 635, '/dm/webaddins/dmapp/AppUI/MissingDataHandling.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function binCont(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 770, '/dm/webaddins/dmapp/AppUI/BinContinuousData.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function rescale(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 720, '/dm/webaddins/dmapp/AppUI/Rescaler.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function catDummies(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 600, '/dm/webaddins/dmapp/AppUI/CreateDummies.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function catScores(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 650, '/dm/webaddins/dmapp/AppUI/CreateCategoryScores.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function reduceCat(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 605, '/dm/webaddins/dmapp/AppUI/ReduceCategories.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function PCA(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 600, '/dm/webaddins/dmapp/AppUI/PCA.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function kMeans(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 600, '/dm/webaddins/dmapp/AppUI/kMeansClustering.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function hierarchical(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 650, '/dm/webaddins/dmapp/AppUI/HierarchicalClustering.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function textMining(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 630, '/dm/webaddins/dmapp/AppUI/TextMiner.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function tsPartition(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 740, '/dm/webaddins/dmapp/AppUI/TimeSeriesPartitionData.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function lagAnalysis(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(490, 620, '/dm/webaddins/dmapp/AppUI/TSLagAnalysis.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function arimaModel(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 640, '/dm/webaddins/dmapp/AppUI/TSArimaModel.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function exponential(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 600, '/dm/webaddins/dmapp/AppUI/ExponentialSmoothing.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function doubleExpo(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 620, '/dm/webaddins/dmapp/AppUI/DoubleExponentialSmoothing.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function movingAverage(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 600, '/dm/webaddins/dmapp/AppUI/MovingAverageSmoothing.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function HW1(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 670, '/dm/webaddins/dmapp/AppUI/HoltWintersMultiplicativeSmoothing.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function HW2(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 670, '/dm/webaddins/dmapp/AppUI/HoltWintersAdditiveSmoothing.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function HW3(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 670, '/dm/webaddins/dmapp/AppUI/HoltWintersNoTrendSmoothing.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function standardPartition(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/StandardDataPartition.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function partitionWithOversampling(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 800, '/dm/webaddins/dmapp/AppUI/PartitionWithOversampling.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyDA(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/DiscriminantAnalysis.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyLR(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/LogisticRegression.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyKNN(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/kNearestNeighbors.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyCT(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/ClassificationTree.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyNB(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/NaiveBayes.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyNNA(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/NNCAutomatic.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyNNM(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/NeuralNetwork.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyBagging(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/BaggingClassification.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyBoosting(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/BoostingClassification.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function classifyRT(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 795, '/dm/webaddins/dmapp/AppUI/CTRandomTrees.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function predictLR(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/MLRPrediction.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function predictKNN(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/KNNPrediction.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function predictRT(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/RTPrediction.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function predictNNA(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/NNPAutomatic.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function predictNNM(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/NNPrediction.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function predictBagging(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/BaggingRegression.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function predictBoosting(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/BoostingRegression.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function predictERT(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/RTRandomTrees.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function newData(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 695, '/dm/webaddins/dmapp/AppUI/NewData.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function MapFeatures(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 420, '/dm/webaddins/dmapp/AppUI/MapFeatures.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function associateRules(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 340, '/dm/webaddins/dmapp/AppUI/AssociationRule.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function score(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(515, 630, '/dm/webaddins/dmapp/AppUI/ScoreData.html', '?app=1' + extraParams);
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function showCharts(args) {
+    addinAdapter.setStorageValue("executor", arguments.callee.toString().match(/function ([^\(]+)/)[1]);
+    common.checkToken().then(function () {
+        common.updateLocalStorage().then(function () {
+            common.openDialog(800, 600, '/dm/webaddins/dmapp/AppUI/DMCharts.html', '?app=1');
+        });
+    }).catch(function () {
+    });
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function checkUpdates(args) {
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function operatingMode(args) {
+    common.openDialog(450, 400, '/dm/webaddins/dmapp/AppUI/OperatingMode.html', '?app=1');
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function supportMode(args) {
+    common.openDialog(450, 550, '/dm/webaddins/dmapp/AppUI/SupportMode.html', '?app=1');
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+/*
+function loadExample(examplUrl) {
+    $.get(examplUrl).done(function (data) {
+        //var exampleObj = JSON.parse(data);
+        insertExample(data);
+    }).fail(function () {
+        // TODO: Let the user know
+    });
+    common.closeDialog();
+}
+
+function insertExample(example) {
+
+    common.insertSheet(example.sheetName, 0, function (sheetname) {
+        Excel.run(function (ctx) {
+            var sh = ctx.workbook.worksheets.getItem(sheetname);
+            ctx.workbook.application.suspendApiCalculationUntilNextSync();
+            sh.activate();
+            var range = sh.getRange(example.dataRange);
+            range.values = example.data;
+            if (example.dataAsTable) {
+                sh.tables.add(example.dataRange, true);
+            }
+
+            if (example.descrRange) {
+                var r = sh.getRange(example.descrRange);
+                r.values = example.descr;
+            }
+            return ctx.sync();
+        });
+    });
+}
+*/
+
+function ASPHelp(args) {
+    common.showHelpCenter(args, "ASPHelp");
+}
+
+function chat(args) {
+    common.chat(args);
+}
+
+function examples(args) {
+    common.showExamples(args);
+}
+
+function userGuide(args) {
+    common.showHelpCenter(args, "userGuide", "guides");
+}
+
+function helpText(args) {
+    window.open('https://www.solver.com/xlminer-online-help');
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function referenceGuide(args) {
+    window.open('https://www.solver.com/xlminer-online-help');
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function OpenServerSettings(args) {
+    common.openDialog(600, 300, '/dm/webaddins/dmapp/AppUI/ServerSettings.html', '?app=1');
+    if (args && typeof args.completed === "function") {
+        args.completed();
+    }
+}
+
+function checkMessage(userid) {
+    //$.ajax('https://www.solver.com/trackmessage/' + userid).done(function (result) {
+    //    if (result != "") {
+    //        app.showNotification("Solver", result);
+    //    }
+    //});
+}
+
+function messageHandler(arg, promise) {
+    // check for special case: login
+    try {
+        if (common.messageHandler(arg, promise) === true)
+            return;
+
+        var mess = JSON.parse(arg.message), id, exec;
+
+        var ajaxOpts = {
+            cache: false,
+            context: this
+        };
+        switch (mess.func) {
+            case 'loadOptExample':
+                common.loadOptExample(mess.params);
+                break;
+            //case 'loadExample':
+            //    loadExample(mess.params);
+            //    break;
+            case 'pmmlInfo':
+                Excel.run(function (ctx) {
+                    var storageSignalKey = mess.sigKey, storageValueKey = mess.valKey;
+                    var range = ctx.workbook.worksheets.getItem(mess.sheet).getRange(mess.range);
+                    range.load('values');
+                    return ctx.sync().then(function () {
+                        //stich values together
+                        var str = "";
+                        for (var i = 0; i < range.values.length; i++) {
+                            str += range.values[i][0];
+                        }
+                        ajaxOpts.method = 'POST';
+                        ajaxOpts.headers = common.app.ajaxOpts.headers;
+                        ajaxOpts.data = {
+                            flags: 0,
+                            offSets: null,
+                            numOffsets: 0,
+                            data: str
+                        };
+
+                        $.ajax(common.app.server + '/datautil/0/PmmlModelinfo', ajaxOpts)
+                            .done(function (data, textStatus, jqXHR) {
+                                var result = JSON.parse(data);
+
+                                var ExcelInfo = {};
+                                ExcelInfo.modelVars = result.modelVars;
+                                ExcelInfo.modelName = result.modelName;
+                                addinAdapter.setStorageValue(storageValueKey, ExcelInfo);
+                                addinAdapter.setStorageValue(storageSignalKey, "true");
+                            })
+                            .fail(function (jqXHR, textStatus, errorThrown) {
+                            });
+
+                    });
+                });
+                break;
+            case 'validateDistance':
+                Excel.run(function (ctx) {
+                    var range = ctx.workbook.worksheets.getItem(mess.data.wksheet).getRange(mess.data.data_range);
+                    var storageSignalKey = mess.sigKey, storageValueKey = mess.valKey;
+                    var numCols = mess.data.input_cols.length;
+
+                    var colRanges = [];
+                    for (var i = 0; i < numCols; i++) {
+                        colRanges.push(range.getColumn(mess.data.input_cols[i].varId));
+                        colRanges[i].load("values");
+                    }
+
+                    return ctx.sync().then(function () {
+                        var numRows = colRanges[0].values.length;
+
+                        var varData = [];
+                        for (var j = 0; j < numRows; j++) {
+                            var rowData = [];
+                            for (var k = 0; k < numCols; k++) {
+                                rowData = rowData.concat(colRanges[k].values[j]);
+                            }
+                            varData.push(rowData);
+                        }
+
+                        ajaxOpts.method = 'POST';
+                        ajaxOpts.headers = common.app.ajaxOpts.headers;
+                        ajaxOpts.data = {
+                            flags: 0,
+                            offSets: null,
+                            numOffsets: 0,
+                            data: JSON.stringify({
+                                header: mess.data.has_header,
+                                data: varData
+                            })
+                        };
+
+                        $.ajax(common.app.server + '/datautil/0/ValidateDistance', ajaxOpts)
+                            .done(function (data, textStatus, jqXHR) {
+                                addinAdapter.setStorageValue(storageValueKey, data);
+                                addinAdapter.setStorageValue(storageSignalKey, "true");
+                            })
+                            .fail(function (jqXHR, textStatus, errorThrown) {
+                            });
+                    });
+                });
+                break;
+            case 'removeconfig':
+                Excel.run(function (ctx) {
+                    var n = null;
+                    var i = 1;
+                    do {
+                        n = ctx.workbook.worksheets.getItem(mess.sheet).names.getItemOrNullObject(mess.name + '_' + i);
+                        if (n) {
+                            n.delete();
+                        }
+                        i++;
+                    } while (n);
+                    return ctx.sync();
+                });
+                break;
+            case 'saveTextParams':
+                Excel.run(function (ctx) {
+                    var sh = ctx.workbook.worksheets.getItemOrNullObject(mess.sheet);
+                    var currSheet = ctx.workbook.worksheets.getActiveWorksheet();
+                    var currSheetName = currSheet.load('name');
+                    return ctx.sync().then(function () {
+                        if (sh.isNullObject) {
+                            sh = ctx.workbook.worksheets.add(mess.sheet);
+                            sh.visibility = "hidden";
+                        }
+                        var range = sh.getRange('A1');
+                        range.values = [['To prevent the text miner UI from initializing from this configuration, either delete or rename this sheet.']];
+
+                        if (mess.rangeName && mess.rangeName !== '') {
+                            var rangename = sh.names.getItemOrNullObject(mess.rangeName);
+                            rangename.load('value');
+                        }
+
+                        str = JSON.stringify(mess.params);
+                        var maxStrLen = 32760;
+                        // caluclate the number of rows necessary to hold the config string. each cell can hold only 32K characters
+                        var rowCount = Math.ceil(str.length / maxStrLen); // Pirate rules on the 32K limit
+
+                        var cfgData = [];
+                        if (rowCount === 1) {
+                            cfgData.push(str);
+                        } else {
+                            var beg = 0;
+                            var end = maxStrLen;
+                            for (var i = 0; i < rowCount; ++i) {
+                                cfgData.push(str.substring(beg, end));
+                                beg = end;
+                                end = Math.min(maxStrLen, beg - str.length);
+                            }
+                        }
+
+                        var rng = sh.getRange('B2').getUsedRangeOrNullObject();
+                        rng.load('address');
+                        return ctx.sync().then(function () {
+                            var rng2;
+                            if (!rng.isNullObject) {
+                                rng2 = rng.getRowsBelow(1).getResizedRange(rowCount - 1, 0);
+                            } else {
+                                rng2 = sh.getRange('B2');//.getRowsBelow(1).getResizedRange(rowCount, 0);
+                            }
+                            rng2.load('address');
+                            rng2.values = [cfgData];
+
+                            return ctx.sync().then(function () {
+                                var rngAddress = rng2.address;
+                                //if (rangename) {
+                                //    range = sh.getRange(rangename);
+                                //    range.clear();
+                                //}
+                                var n = ctx.workbook.worksheets.getItem(currSheetName.name).names.getItemOrNullObject(mess.rangeName);
+                                if (n) {
+                                    n.delete();
+                                }
+                                n = ctx.workbook.worksheets.getItem(currSheetName.name).names.add(mess.rangeName, rngAddress, "");
+                                n.visible = false;
+                                return ctx.sync();
+                            });
+
+                        }).catch(common.errorHandler);
+                    }).catch(common.errorHandler);
+                });
+                break;
+            case 'getTextparams':
+                Excel.run(function (ctx) {
+                    var book = ctx.workbook;
+                    var storageSignalKey = mess.sigKey, storageValueKey = mess.valKey;
+                    var sheets = book.worksheets;
+                    var sheet = sheets.getItem(mess.sheet);
+                    var range = book.getSelectedRange();
+                    var region = range.getSurroundingRegion();
+                    var n = sheet.names.getItemOrNullObject(mess.rangeKey);
+                    n.load('value');
+                    region.load('address');
+                    var config = {};
+                    return ctx.sync().then(function () {
+                        if (!n.isNullObject) {
+                            var book = ctx.workbook;
+                            var sheets = book.worksheets;
+                            var sheet = sheets.getItem(mess.sheet);
+                            var hiddensheet = sheets.getItem(mess.txtSheet);
+                            if (hiddensheet) {
+                                var range = hiddensheet.getRange(n.value);
+                                range.load('values');
+                            }
+                            return ctx.sync().then(function () {
+
+                                if (range.values) {
+                                    var val = range.values;
+                                    var s = '';
+                                    // val is a 2-D array of values. assemble them into a a string and create the
+                                    // javascript object.
+                                    for (var i = 0; i < val.length; ++i) {
+                                        var r = val[i];
+                                        for (var j = 0; j < r.length; ++j) {
+                                            s = s + r[j];
+                                        }
+                                    }
+
+                                    if (s.length > 0) {
+                                        config = JSON.parse(s);
+                                    }
+                                } else {
+                                    config["data_range"] = region.address.substr(region.address.indexOf('!') + 1);
+                                    config["wksheet"] = mess.sheet;
+                                }
+                                var ExcelInfo = {
+                                    configObj: config
+                                };
+                                addinAdapter.setStorageValue(storageValueKey, ExcelInfo);
+                                addinAdapter.setStorageValue(storageSignalKey, "true");
+                            }).catch(function () {
+                                config["data_range"] = region.address.substr(region.address.indexOf('!') + 1);
+                                config["wksheet"] = mess.sheet;
+                                var ExcelInfo = {
+                                    configObj: config
+                                };
+                                addinAdapter.setStorageValue(storageValueKey, ExcelInfo);
+                                addinAdapter.setStorageValue(storageSignalKey, "true");
+                            });
+
+                        } else {
+                            config["data_range"] = region.address.substr(region.address.indexOf('!') + 1);
+                            config["wksheet"] = mess.sheet;
+                            var ExcelInfo = {
+                                configObj: config
+                            };
+                            addinAdapter.setStorageValue(storageValueKey, ExcelInfo);
+                            addinAdapter.setStorageValue(storageSignalKey, "true");
+                        }
+                    });
+                }).catch(common.errorHandler);
+                break;
+            case 'trialRun':
+            // fall through so we run the operation in test mode
+            case 'invoke':
+                Excel.run(function (context) {
+                    var book = context.workbook;
+                    book.load('name');
+                    return context.sync().then(function () {
+                        rasonApp.testRun = (mess.func === 'trialRun');
+                        rasonApp.fid = mess.fid;
+                        rasonApp.parameters = mess.params;
+                        rasonApp.promise = promise;
+                        rasonApp.message = mess;
+                        if (!rasonApp.parameters.wkbk) {
+                            rasonApp.parameters.wkbk = book.name;
+                        }
+                        Office.context.document.getFileAsync(Office.FileType.Compressed, null /*{ sliceSize: 65536 /*64 KB/ }*/,
+                            function (result) {
+                                if (result.status === "succeeded") {
+                                    // If the getFileAsync call succeeded, then
+                                    // result.value will return a valid File Object.
+                                    var myFile = result.value;
+                                    var sliceCount = myFile.sliceCount;
+                                    var slicesReceived = 0, gotAllSlices = true, docdataSlices = [];
+                                    //app.showNotification("File size:" + myFile.size + " #Slices: " + sliceCount);
+
+                                    // Get the file slices.
+                                    common.getSliceAsync(myFile, 0, sliceCount, gotAllSlices, docdataSlices, slicesReceived);
+                                }
+                                else {
+                                    common.errorHandler(result.error);
+                                }
+                            });
+                    });
+                });
+                break;
+            case 'updateFlow':
+                if (controller) {
+                    controller.updateAction("", mess.params.wksheet, mess.fid, JSON.stringify(mess.params), "", "", mess.theFrm);
+                }
+                common.closeDialog();
+                break;
+            case 'getCharts':
+                Excel.run(function (ctx) {
+                    var book = ctx.workbook;
+                    var sheets = book.worksheets;
+                    var storageSignalKey = mess.sigKey, storageValueKey = mess.valKey;
+                    var sheet = book.worksheets.getItem(mess.sheet);
+                    sheet.activate();
+                    return ctx.sync().then(function () {
+                        checkCharts(mess.sheet, storageSignalKey, storageValueKey);
+                    });
+                });
+                break;
+        }
+    } catch (e) {
+        common.closeDialog();
+    }
+}
+
+function onGotAllSlices(docdataSlices) {
+    var blob = new Blob(docdataSlices, { type: 'application/octet-stream' });
+
+    rasonApp.startSolve(blob);
+}

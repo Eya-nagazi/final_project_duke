@@ -1,0 +1,2564 @@
+////////////////////////////////////////////////////////
+// Common functions shared between Solver and DM apps //
+////////////////////////////////////////////////////////
+
+var common = {
+    app: {
+        ajaxOpts: {
+            headers: {
+                // Add the 'Authorization' header and bearer token to all requests. The value of the bearer token is the RASON token and
+                // can be verified at https://rason.com/Manage (after logging in)
+                // 'Authorization': 'Bearer ' + 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoidXNlciIsInRpbWUiOiI2MCIsIm1vbnRoIjoiMjg4MDAiLCJ2YXJpYWJsZXMiOiIyMDAiLCJsaW5lYXJfdmFycyI6IjIwMCIsIm5vbmxpbmVhcl92YXJzIjoiMTAwIiwidW5jZXJ0YWluX3ZhcnMiOiIyNCIsInVuY2VydGFpbl9mY25zIjoiMTIiLCJmdW5jdGlvbnMiOiIxMDAiLCJpbnRlZ2VycyI6IjIwMCIsImVuZ2luZXMiOiIwMDAwMDAwIiwibWF4VHJpYWxzIjoiMTAwMCIsInVzZXJpZCI6IjE5MjQwOCIsInVzZXJuYW1lIjoiU29sdmVyQXBwQHNvbHZlci5jb20iLCJwbGFuIjoiTm9uZSIsImlhdCI6IjE0MzE5NjYzNTIuMzY1NzkiLCJqdGkiOiIzOWIxMDBjNzVlODBjYTU2OWExZGU4YWIzYzM2NjQ3MSJ9.uqbnkxoTzKIY3nt3CwBMiddiFgyCLWEsbEtgs0jZat4'
+            },
+            cache: false,
+            context: this,
+            method: 'POST'
+        },
+
+        dialog: null,
+        rasonProductType: null,
+        get server() { return config.rasonServerApiUrl; },
+        userId: 0,
+        workbook: "",
+        worksheet: ""
+    },
+
+    about: function (args) {
+        common.openDialog(475, 600, config.aboutUrl);
+        if (args) { args.completed(); }
+    },
+
+    chat: function (args) {
+        var sup = addinAdapter.getStorageValue('supportMode');
+        if (sup != '2' && sup != '3') {
+            var isDesktop = window.top === window;
+            var w = isDesktop ? 423 : 405;
+            var h = isDesktop ? 570 : 610;
+            common.openDialog(w, h, '/common/webaddins/CommonApp/Pages/liveChat.html');
+            common.app.chatting = true;
+        } else {
+            common.showWarningDialog('To use this feature, set "Support Mode" to "Active Support".');
+        }
+
+        if (args) { args.completed(); }
+    },
+
+    checkToken: function (allowExpired) {
+		/*
+		Office.context.auth.getAccessTokenAsync(function (result) {
+			if (result.status === "succeeded") {
+				// Use this token to call Web API
+				var ssoToken = result.value;
+		} else {
+			if(result.error.code === 13003) {
+				// SSO is not supported for domain user accounts, only
+				// work or school (Office 365) or Microsoft Account IDs.
+			} else {
+				// Handle error
+			}
+		}
+		});
+		*/
+
+        return Excel.run(function (context) {
+            var promise;
+            var token, name, customToken;
+            var workbook, worksheet;
+            var useDflt = addinAdapter.getStorageValue("svrSettingUseDflt");
+
+            if (useDflt === "false") {
+                token = addinAdapter.getStorageValue("svrSettingTkn");
+                name = "";
+                customToken = true;
+
+                promise = new OfficeExtension.Promise(function (resolve, reject) {
+                    resolve();
+                });
+            } else if (common.isLoggedIn()) {
+                token = addinAdapter.getStorageValue('userToken');
+                name = addinAdapter.getStorageValue('userName');
+                customToken = false;
+
+                promise = common.renewLicense();
+            } else {
+                return new OfficeExtension.Promise(function (resolve, reject) {
+                    common.login();
+                    reject();
+                });
+            }
+
+            return promise.then(function () {
+                if (common.app.workbook == '') {
+                    workbook = context.workbook;
+                    worksheet = workbook.worksheets.getActiveWorksheet();
+                    workbook.load('name');
+                    worksheet.load('name');
+                }
+                return context.sync();
+            }).then(function () {
+                return new OfficeExtension.Promise(function (resolve, reject) {
+                    if (common.app.workbook == '') {
+                        common.app.workbook = workbook.name;
+                        common.app.worksheet = worksheet.name;
+                    }
+                    addinAdapter.setStorageValue(common.app.workbook + common.app.worksheet + 'progressContents', JSON.stringify({ status: { code: -100 } }));
+                    addinAdapter.setStorageValue(common.app.workbook + common.app.worksheet + 'progressInfo', '1');
+                    common.processtoken(token, name, customToken);
+                    if (allowExpired || !common.licenseExpired()) {
+                        common.sendTrackAction(addinAdapter.getStorageValue("executor"));
+                        resolve();
+                    } else {
+                        reject({ message: "This feature is not available with an expired license. Please go to Manage Licenses to renew or purchase a new license." });
+                    }
+                });
+            });
+        }).catch(function (error) {
+            return new OfficeExtension.Promise(function (resolve, reject) {
+                if (typeof error === "object") {
+                    common.showWarningDialog(error.message);
+                }
+                reject();
+            });
+        });
+    },
+
+    clearLogin: function () {
+        addinAdapter.setStorageValue("userToken", "");
+        addinAdapter.setStorageValue("userName", "");
+        addinAdapter.setStorageValue("productToken", "");
+        addinAdapter.setStorageValue("infoToken", "");
+    },
+
+    closeChatWindow: function () {
+        delete common.app.chatting;
+
+        var frm = document.createElement('iframe');
+        frm.dataset.chatSrcUrl = addinAdapter.getChatSrcUrl();
+        frm.height, frm.width = 0;
+        frm.src = "/common/webaddins/CommonApp/Pages/CloseChat.html";
+        document.body.appendChild(frm);
+    },
+
+    closeDialog: function () {
+        if (common.app.dialog) {
+            var dialog = common.app.dialog;
+            common.app.dialog = null;
+            dialog.close();
+        }
+    },
+
+    closeDialogAsync: function (callback) {
+        if (common.app.dialog) {
+            var promise = new OfficeExtension.Promise(function (resolve, reject) {
+                try {
+                    common.app.dialog.close();
+                    resolve();
+                } catch (error) {
+                    reject();
+                }
+            });
+
+            promise.then(function () {
+                common.app.dialog = null;
+                window.setTimeout(callback, 750);
+            })
+                .catch(function () {
+                    common.closeDialogAsync(callback);
+                });
+        } else {
+            callback();
+        }
+    },
+
+    commercialPurchaseLicense: function (args, data) {
+        var executor = {
+            "func": "common.commercialPurchaseLicense",
+            "args": [
+                null,
+                data
+            ]
+        };
+        common.showPurchaseLicense(args, executor, 1110, (window.top === window) ? 880 : 785, "/User/CommercialPurchaseLicense?data=" + data, false);
+    },
+
+    deleteAppSetting: function (settingKey) {
+        return Excel.run(function (context) {
+            var settings = context.workbook.settings;
+            var the_setting = settings.getItemOrNullObject(settingKey);
+            the_setting.delete();
+            return context.sync();
+        }).catch(function () {
+            return null;
+        });
+    },
+
+    dialogCallback: function (asyncResult) {
+        if (asyncResult.status === "failed") {
+            // In addition to general system errors, there are 3 specific errors for 
+            // displayDialogAsync that you can handle individually.
+            switch (asyncResult.error.code) {
+                case 12004:
+                    //app.showNotification("Domain is not trusted");
+                    common.showWarningDialog('Domain is not trusted.');
+                    break;
+                case 12005:
+                    //app.showNotification("HTTPS is required");
+                    common.showWarningDialog('HTTPS is required.');
+                    break;
+                case 12007:
+                    // commented out, becuase we cant open a dialog to let the user know a dialog is already open....
+                    //common.showWarningDialog('A dialog is already opened.');
+                    break;
+                default:
+                    common.showWarningDialog(asyncResult.error.message);
+                    break;
+            }
+        }
+        else {
+            common.app.dialog = asyncResult.value;
+            /*Messages are sent by developers programatically from the dialog using office.context.ui.messageParent(...)*/
+            common.app.dialog.addEventHandler(Office.EventType.DialogMessageReceived, messageHandler);
+            common.app.dialog.addEventHandler(Office.EventType.DialogEventReceived, common.dialogEventHandler);
+        }
+    },
+
+    dialogEventHandler: function (arg) {
+        switch (arg.error) {
+            case 12002: //The dialog box has been directed to a page that it cannot find or load, or the URL syntax is invalid.
+                break;
+            case 12003://The dialog box was directed to a URL with the HTTP protocol. HTTPS is required.
+                break;
+            case 12006: //The dialog box was closed, usually because the user chooses the X button.
+                // dialog is gone. set our dialog ref to null.
+                common.app.dialog = null;
+
+                if (typeof GetModelExecutor === "function") {
+                    var executor = GetModelExecutor();
+                    if (executor && executor.runningGuidedMode === true) {
+                        executor.runningGuidedMode = false;
+                        skipguide();
+                    }
+                }
+
+                if (typeof Ext !== "undefined")
+                    Ext.fireEvent("xlmdialogcanceled");
+
+                if (common.app.chatting) {
+                    common.closeChatWindow();
+                }
+
+                break;
+            default:
+                break;
+        }
+    },
+
+    errorHandler: function (error) {
+        //utils.writeError("Error: " + error);
+        //if (error instanceof OfficeExtension.Error) {
+        //    utils.writeError("Debug info: " + JSON.stringify(error.debugInfo));
+        //}
+        var msg = "Error: ";
+        if (error && error.message) {
+            if (error.name) {
+                msg += error.name + " ";
+            }
+            if (error.code) {
+                msg += error.code + ". ";
+            }
+            msg += error.message;
+        } else {
+            msg += "Unknown error";
+        }
+        common.showWarningDialog(msg);
+        common.sendTrackAction(msg);
+    },
+
+
+    // generating the sheets serialized in 'data'
+    // data on each sheet is written and synced in batches 
+    // (batch size for data is defined in def.MAX_DATA_BATCH_SYNC_SIZE, for formatting def.MAX_FORMAT_BATCH_SYNC_SIZE)
+    generateSheets: function (data) {
+        var needToSync = function () {
+            // 5/7/19: some changes by MS caused Excel Desktop to crash on large syncs, so have to batch them everywhere now
+            // TODO: revisit this when things on MS side stabilize
+            return true;
+            //return utils.isOnline() || utils.isMac();
+        };
+
+        return Excel.run(function (ctxSheetAddSheets) {
+
+            // add all sheets now, so we can reference them later when writing
+            var sheets = ctxSheetAddSheets.workbook.worksheets;
+            for (var sheetID = data.numSheets; sheetID--;)
+                sheets.add(data.sheets[sheetID].name);
+
+            // load active sheet position
+            var activeSheet = sheets.getActiveWorksheet();
+            activeSheet.load('position');
+
+            // sync adding sheets and position
+            return ctxSheetAddSheets.sync().then(function () {
+                return Excel.run(function (ctxPositionSheets) {
+
+                    // reposition report sheets to the right of active sheet
+                    var position = activeSheet.position;
+                    for (var sheetID = data.numSheets; sheetID--;) {
+                        var sheet = ctxPositionSheets.workbook.worksheets.getItem(data.sheets[sheetID].name);
+                        sheet.position = position + 1;
+                        sheet.showGridlines = false;
+                    }
+
+                    // sync the repositioning now (otherwise sheets will visibly move around in excel)
+                    return ctxPositionSheets.sync().then(function () {
+
+                        // func: write one sheet by its ID in data
+                        var writeSheet = function (sheetID) {
+                            var numSyncs = 0; // #syncs for each sheet, for debugging
+
+                            var sheetData = data.sheets[sheetID];
+
+                            var counter, batch = 0;
+
+                            // 1.
+                            // we handle sparse data that is stored cell-by-cell
+                            if (sheetData.data) {
+                                var numSparseCells = sheetData.data.length;
+                                var batchSparseSize = Math.min(def.MAX_DATA_BATCH_SYNC_SIZE, numSparseCells);
+
+                                var numCompleteSparseBatches = Math.floor(numSparseCells / batchSparseSize);
+                                var numTotalSparseBatches = numCompleteSparseBatches;
+                                if (numCompleteSparseBatches * batchSparseSize < numSparseCells)
+                                    ++numTotalSparseBatches;
+
+                                var cell;
+                                var rangeAddress, range;
+                                var table, tableData;
+
+                                // func: write and sync a single batch for a given sheet
+                                var writeSparseBatch = function (context, batchNum) {
+                                    var sheet = context.workbook.worksheets.getItem(sheetData.name);
+
+                                    var start = batchNum * batchSparseSize, end = 0;
+
+                                    // check if there's an incomplete last batch
+                                    // if yes and we are at the last complete batch - write the incomplete one til the end
+                                    if (numTotalSparseBatches > numCompleteSparseBatches && batchNum === numCompleteSparseBatches)
+                                        end = numSparseCells;
+                                    else
+                                        end = (batchNum + 1) * batchSparseSize;
+
+                                    for (counter = start; counter < end; counter++) {
+                                        var cellRow = sheetData.data[counter][0];
+                                        var cellCol = sheetData.data[counter][1];
+                                        var cellValue = sheetData.data[counter][2];
+
+                                        cell = sheet.getCell(cellRow, cellCol);
+                                        cell.values = [[cellValue]];
+                                    }
+                                };
+
+                                // chain the promises for each sparse batch for a given sheet
+                                if (needToSync() === true) {
+                                    // note that here and below we have to create a closure around index 'batch' b/c it takes part in async func that is not immediately executed
+                                    for (batch = 0; batch < numTotalSparseBatches; batch++) {
+                                        (function (batch) {
+                                            promise = promise.then(function () {
+                                                return Excel.run(function (ctxSparse) {
+                                                    utils.suspend(ctxSparse);
+                                                    writeSparseBatch(ctxSparse, batch);
+
+                                                    numSyncs++;
+                                                    return ctxSparse.sync();
+                                                }).catch(common.errorHandler);
+                                            });
+                                        })(batch);
+                                    }
+                                } else
+                                    promise = promise.then(function () {
+                                        return Excel.run(function (ctxSparse) {
+                                            utils.suspend(ctxSparse);
+                                            for (batch = 0; batch < numTotalSparseBatches; batch++)
+                                                writeSparseBatch(ctxSparse, batch);
+
+                                            numSyncs++;
+                                            return ctxSparse.sync();
+                                        }).catch(common.errorHandler);
+                                    });
+                            }
+
+                            // 2.
+                            // since above sparse data doesn't include tables' data, we have to handle tables separately:
+                            // check each table's dims and batch-sync them
+                            if (sheetData.tables) {
+                                // gather some info about all tables first
+                                var allTablesInfo = [];
+
+                                var numTables = sheetData.tables.length;
+                                for (counter = 0; counter < numTables; counter++) {
+                                    allTablesInfo[counter] = {
+                                        rangeAddress: '',
+                                        numRows: 0,
+                                        numCols: 0,
+                                        numTableCells: 0,
+                                        isLarge: false
+                                    };
+
+                                    table = sheetData.tables[counter];
+                                    tableData = table[4].data;
+
+                                    // some tables can be added without data
+                                    if (tableData && tableData.length !== 0) {
+                                        allTablesInfo[counter].rangeAddress = utils.GetAddress(table[0], table[1]) + ":" + utils.GetAddress(table[2], table[3]);
+                                        allTablesInfo[counter].numRows = tableData.length;
+                                        allTablesInfo[counter].numCols = tableData[0].length;
+                                        allTablesInfo[counter].numTableCells += allTablesInfo[counter].numRows * allTablesInfo[counter].numCols;
+                                        allTablesInfo[counter].isLarge = allTablesInfo[counter].numTableCells > def.MAX_DATA_BATCH_SYNC_SIZE;
+                                    }
+                                }
+
+                                // 2.1
+                                // deal with small tables (i.e. the ones with #cells <= limit)
+                                // some number of these small tables combined could exceed the limit (e.g. in automatic neural net) - so have to handle that as well
+
+                                // compose the batches of small tables, which combined don't exceed the limit
+                                var smallTableBatches = [[]];
+                                var currentBatch = 0;
+                                var currentBatchSize = 0;
+                                for (counter = 0; counter < numTables; counter++) {
+                                    table = allTablesInfo[counter];
+                                    numCells = table.numTableCells;
+
+                                    if (numCells !== 0 && table.isLarge === false) {
+                                        // put current table ID into the current batch
+                                        if (currentBatchSize + numCells < def.MAX_DATA_BATCH_SYNC_SIZE) {
+                                            smallTableBatches[currentBatch].push(counter);
+                                            currentBatchSize += numCells;
+                                        }
+                                        // start new batch and put current table ID there
+                                        else {
+                                            smallTableBatches.push([counter]);
+                                            currentBatchSize = numCells;
+                                            currentBatch++;
+                                        }
+                                    }
+                                }
+
+                                // write a single small table batch for a given sheet
+                                var writeSmallTableBatch = function (context, batchNum) {
+                                    var sheet = context.workbook.worksheets.getItem(sheetData.name);
+
+                                    for (var counter = 0; counter < smallTableBatches[batchNum].length; counter++)
+                                        sheet.getRange(allTablesInfo[smallTableBatches[batchNum][counter]].rangeAddress).values = sheetData.tables[smallTableBatches[batchNum][counter]][4].data;
+                                };
+
+                                // chain the promises for each small table batch for a given sheet
+                                if (needToSync() === true) {
+                                    for (batch = 0; batch < smallTableBatches.length; batch++) {
+                                        (function (batch) {
+                                            promise = promise.then(function () {
+                                                return Excel.run(function (ctxSmallTable) {
+                                                    utils.suspend(ctxSmallTable);
+                                                    writeSmallTableBatch(ctxSmallTable, batch);
+
+                                                    numSyncs++;
+                                                    return ctxSmallTable.sync();
+                                                }).catch(common.errorHandler);
+                                            });
+                                        })(batch);
+                                    }
+                                } else
+                                    promise = promise.then(function () {
+                                        return Excel.run(function (ctxSmallTable) {
+                                            utils.suspend(ctxSmallTable);
+                                            for (batch = 0; batch < smallTableBatches.length; batch++)
+                                                writeSmallTableBatch(ctxSmallTable, batch);
+
+                                            numSyncs++;
+                                            return ctxSmallTable.sync();
+                                        }).catch(common.errorHandler);
+                                    });
+
+                                // 2.2
+                                // now deal with large tables, cut them into chunks...
+
+                                // prepare batches for large tables
+                                // we cut tables by rows - it's theoretically possible that some tables might have 1 row and numCols >= def.MAX_DATA_BATCH_SYNC_SIZE, but practically it's virtually impossible
+                                var largeTableBatches = [];
+                                for (counter = 0; counter < numTables; counter++) {
+                                    if (allTablesInfo[counter].isLarge === false)
+                                        continue;
+
+                                    table = sheetData.tables[counter];
+                                    tableData = table[4].data;
+
+                                    var numBatchRows = Math.floor(def.MAX_DATA_BATCH_SYNC_SIZE / allTablesInfo[counter].numCols);
+                                    var numCompleteBatches = Math.floor(allTablesInfo[counter].numRows / numBatchRows);
+
+                                    // for complete batches
+                                    for (var b = 0; b < numCompleteBatches; b++) {
+                                        var startRow = b * numBatchRows, endRow = startRow + numBatchRows;
+                                        var top = table[0] + startRow, left = table[1], bottom = top + numBatchRows - 1, right = table[3];
+
+                                        largeTableBatches.push({
+                                            rangeAddress: utils.GetAddress(top, left) + ":" + utils.GetAddress(bottom, right),
+                                            data: tableData.slice(startRow, endRow)
+                                        });
+                                    }
+
+                                    // for the last incomplete batch, if any
+                                    if (numBatchRows * numCompleteBatches < allTablesInfo[counter].numRows) {
+                                        startRow = numCompleteBatches * numBatchRows, endRow = allTablesInfo[counter].numRows;
+                                        top = table[0] + startRow, left = table[1], bottom = table[2], right = table[3];
+
+                                        largeTableBatches.push({
+                                            rangeAddress: utils.GetAddress(top, left) + ":" + utils.GetAddress(bottom, right),
+                                            data: tableData.slice(startRow, endRow)
+                                        });
+                                    }
+                                }
+
+                                // write a single large table batch for a given sheet
+                                var writeLargeTableBatch = function (context, batchNum) {
+                                    var sheet = context.workbook.worksheets.getItem(sheetData.name);
+                                    sheet.getRange(largeTableBatches[batchNum].rangeAddress).values = largeTableBatches[batchNum].data;
+                                };
+
+                                // chain the promises for each large table batch for a given sheet
+                                if (needToSync() === true) {
+                                    for (batch = 0; batch < largeTableBatches.length; batch++) {
+                                        (function (batch) {
+                                            promise = promise.then(function () {
+                                                return Excel.run(function (ctxLargeTable) {
+                                                    utils.suspend(ctxLargeTable);
+                                                    writeLargeTableBatch(ctxLargeTable, batch);
+
+                                                    numSyncs++;
+                                                    return ctxLargeTable.sync();
+                                                }).catch(common.errorHandler);
+                                            });
+                                        })(batch);
+                                    }
+                                } else
+                                    promise = promise.then(function () {
+                                        return Excel.run(function (ctxLargeTable) {
+                                            utils.suspend(ctxLargeTable);
+                                            for (batch = 0; batch < largeTableBatches.length; batch++)
+                                                writeLargeTableBatch(ctxLargeTable, batch);
+
+                                            numSyncs++;
+                                            return ctxLargeTable.sync();
+                                        }).catch(common.errorHandler);
+                                    });
+                            }
+
+                            // 3.
+                            // charts
+
+                            if (sheetData.charts) {
+                                var charts = sheetData.charts;
+                                var numCharts = charts.length;
+
+                                var batchChartSize = Math.min(def.MAX_CHART_BATCH_SYNC_SIZE, numCharts);
+                                var numChartBatches = Math.floor(numCharts / batchChartSize);
+
+                                var writeChartsBatch = function (context, start, end) {
+                                    var sheet = context.workbook.worksheets.getItem(sheetData.name);
+
+                                    batchEnd = Math.min(end, numCharts);
+
+                                    for (var i = start; i < batchEnd; i++) {
+                                        var chart = charts[i];
+
+                                        var sourceDataRangeAddress = utils.GetAddress(chart.sourceData.top, chart.sourceData.left) + ":" + utils.GetAddress(chart.sourceData.bottom, chart.sourceData.right);
+                                        var sourceDataRange = sheet.getRange(sourceDataRangeAddress);
+
+                                        var excelChart = sheet.charts.add(chart.type, sourceDataRange, chart.seriesBy);
+                                        if (chart.title)
+                                            excelChart.title.text = chart.title;
+
+                                        excelChart.setPosition(utils.GetAddress(chart.position.top, chart.position.left), utils.GetAddress(chart.position.bottom, chart.position.right));
+
+                                        if (chart.series) {
+                                            for (var j = 0; j < chart.series.length; j++) {
+                                                var series = chart.series[j];
+                                                if (series === null)
+                                                    continue;
+
+                                                var excelSeries = excelChart.series.getItemAt(j);
+                                                if (excelSeries === null)
+                                                    continue;
+
+                                                if (series.gapWidth)
+                                                    excelSeries.gapWidth = series.gapWidth;
+                                                if (series.hasDataLabels)
+                                                    excelSeries.hasDataLabels = true;
+                                            }
+                                        }
+
+                                        if (chart.format) {
+                                            if (chart.format.colorScheme)
+                                                excelChart.format.colorScheme = chart.format.colorScheme;
+                                        }
+
+                                        if (chart.style)
+                                            excelChart.style = chart.style;
+                                    }
+                                };
+
+                                // chain the promises for each chart batch for a given sheet
+                                if (needToSync() === true) {
+                                    for (batch = 0; batch <= numChartBatches; batch++) {
+                                        (function (batch) {
+                                            var batchStart = batch * def.MAX_CHART_BATCH_SYNC_SIZE;
+                                            var batchEnd = (batch + 1) * def.MAX_CHART_BATCH_SYNC_SIZE;
+
+                                            promise = promise.then(function () {
+                                                return Excel.run(function (ctxCharting) {
+                                                    utils.suspend(ctxCharting);
+                                                    writeChartsBatch(ctxCharting, batchStart, batchEnd);
+
+                                                    numSyncs++;
+                                                    return ctxCharting.sync();
+                                                }).catch(common.errorHandler);
+                                            });
+                                        })(batch);
+                                    }
+                                } else
+                                    promise = promise.then(function () {
+                                        return Excel.run(function (ctxCharting) {
+                                            utils.suspend(ctxCharting);
+                                            for (batch = 0; batch <= numChartBatches; batch++) {
+                                                var batchStart = batch * def.MAX_CHART_BATCH_SYNC_SIZE;
+                                                var batchEnd = (batch + 1) * def.MAX_CHART_BATCH_SYNC_SIZE;
+
+                                                writeChartsBatch(ctxCharting, batchStart, batchEnd);
+                                            }
+
+                                            numSyncs++;
+                                            return ctxCharting.sync();
+                                        }).catch(common.errorHandler);
+                                    });
+                            }
+
+                            // 4.
+                            // formatting
+
+                            var writeFormatBatch = function (context, start, end) {
+                                var sheet = context.workbook.worksheets.getItem(sheetData.name);
+
+                                var batchEnd = end;
+
+                                //hyperlinks
+                                if (sheetData.hyperlinks) {
+                                    batchEnd = Math.min(end, sheetData.hyperlinks.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        cell = sheet.getCell(sheetData.hyperlinks[counter][0], sheetData.hyperlinks[counter][1]);
+                                        cell.hyperlink = {
+                                            address: sheetData.hyperlinks[counter][2].address,
+                                            documentReference: sheetData.hyperlinks[counter][2].subAddress,
+                                            screenTip: sheetData.hyperlinks[counter][2].screenTip,
+                                            textToDisplay: sheetData.hyperlinks[counter][2].textToDisplay
+                                        };
+                                    }
+                                }
+
+                                // Formulas
+                                if (sheetData.formulas) {
+                                    batchEnd = Math.min(end, sheetData.formulas.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        cell = sheet.getCell(sheetData.formulas[counter][0], sheetData.formulas[counter][1]);
+                                        cell.values = [
+                                            [sheetData.formulas[counter][2]]
+                                        ];
+                                    }
+                                }
+
+                                // FontFormats
+                                if (sheetData.fontFormats) {
+                                    if (sheetData.fontFormats.name) {
+                                        batchEnd = Math.min(end, sheetData.fontFormats.name.length);
+                                        for (counter = start; counter < batchEnd; counter++) {
+                                            rangeAddress = utils.GetAddress(sheetData.fontFormats.name[counter][0], sheetData.fontFormats.name[counter][1]) + ":" + utils.GetAddress(sheetData.fontFormats.name[counter][2], sheetData.fontFormats.name[counter][3]);
+                                            range = sheet.getRange(rangeAddress);
+                                            range.format.font.name = sheetData.fontFormats.name[counter][4];
+                                        }
+                                    }
+
+                                    // Bold
+                                    if (sheetData.fontFormats.bold) {
+                                        batchEnd = Math.min(end, sheetData.fontFormats.bold.length);
+                                        for (counter = start; counter < batchEnd; counter++) {
+                                            rangeAddress = utils.GetAddress(sheetData.fontFormats.bold[counter][0], sheetData.fontFormats.bold[counter][1]) + ":" + utils.GetAddress(sheetData.fontFormats.bold[counter][2], sheetData.fontFormats.bold[counter][3]);
+                                            range = sheet.getRange(rangeAddress);
+                                            range.format.font.bold = true;
+                                        }
+                                    }
+
+                                    // Color
+                                    if (sheetData.fontFormats.color) {
+                                        batchEnd = Math.min(end, sheetData.fontFormats.color.length);
+                                        for (counter = start; counter < batchEnd; counter++) {
+                                            rangeAddress = utils.GetAddress(sheetData.fontFormats.color[counter][0], sheetData.fontFormats.color[counter][1]) + ":" + utils.GetAddress(sheetData.fontFormats.color[counter][2], sheetData.fontFormats.color[counter][3]);
+                                            range = sheet.getRange(rangeAddress);
+                                            range.format.font.color = utils.rgbToHex(sheetData.fontFormats.color[counter][4]["r"], sheetData.fontFormats.color[counter][4]["g"], sheetData.fontFormats.color[counter][4]["b"]);
+                                        }
+                                    }
+
+                                    // Size
+                                    if (sheetData.fontFormats.size) {
+                                        batchEnd = Math.min(end, sheetData.fontFormats.size.length);
+                                        for (counter = start; counter < batchEnd; counter++) {
+                                            rangeAddress = utils.GetAddress(sheetData.fontFormats.size[counter][0], sheetData.fontFormats.size[counter][1]) + ":" + utils.GetAddress(sheetData.fontFormats.size[counter][2], sheetData.fontFormats.size[counter][3]);
+                                            range = sheet.getRange(rangeAddress);
+                                            range.format.font.size = sheetData.fontFormats.size[counter][4];
+                                        }
+                                    }
+                                }
+
+                                // merge
+                                if (sheetData.merge) {
+                                    batchEnd = Math.min(end, sheetData.merge.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.merge[counter][0], sheetData.merge[counter][1]) + ":" + utils.GetAddress(sheetData.merge[counter][2], sheetData.merge[counter][3]);
+                                        range = sheet.getRange(rangeAddress);
+                                        range.merge();
+                                    }
+                                }
+
+                                // Alignments
+                                // Horizontal
+                                if (sheetData.horizontalAlignments) {
+                                    batchEnd = Math.min(end, sheetData.horizontalAlignments.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.horizontalAlignments[counter][0], sheetData.horizontalAlignments[counter][1]) + ":" + utils.GetAddress(sheetData.horizontalAlignments[counter][2], sheetData.horizontalAlignments[counter][3]);
+                                        range = sheet.getRange(rangeAddress);
+                                        switch (sheetData.horizontalAlignments[counter][4]) {
+                                            case 'xlLeft':
+                                                range.format.horizontalAlignment = "Left";
+                                                break;
+                                            case 'xlRight':
+                                                range.format.horizontalAlignment = "Right";
+                                                break;
+                                            case 'xlCenter':
+                                                range.format.horizontalAlignment = "Center";
+                                                break;
+                                            case 'xlJustify':
+                                                range.format.horizontalAlignment = "Justify";
+                                                break;
+                                            case 'xlDistributed':
+                                                range.format.horizontalAlignment = "Distributed";
+                                                break;
+
+                                        }
+                                    }
+                                }
+
+                                // Vertical
+                                if (sheetData.verticalAlignments) {
+                                    batchEnd = Math.min(end, sheetData.verticalAlignments.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.verticalAlignments[counter][0], sheetData.verticalAlignments[counter][1]) + ":" + utils.GetAddress(sheetData.verticalAlignments[counter][2], sheetData.verticalAlignments[counter][3]);
+                                        range = sheet.getRange(rangeAddress);
+                                        switch (sheetData.verticalAlignments[counter][4]) {
+                                            case 'xlTop':
+                                                range.format.verticalAlignment = "Top";
+                                                break;
+                                            case 'xlBottom':
+                                                range.format.verticalAlignment = "Bottom";
+                                                break;
+                                            case 'xlCenter':
+                                                range.format.verticalAlignment = "Center";
+                                                break;
+                                            case 'xlJustify':
+                                                range.format.verticalAlignment = "Justify";
+                                                break;
+                                            case 'xlDistributed':
+                                                range.format.verticalAlignment = "Distributed";
+                                                break;
+
+                                        }
+                                    }
+                                }
+
+                                // border line styles
+                                if (sheetData.borderLineStyles) {
+                                    batchEnd = Math.min(end, sheetData.borderLineStyles.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.borderLineStyles[counter][0], sheetData.borderLineStyles[counter][1]) + ":" + utils.GetAddress(sheetData.borderLineStyles[counter][2], sheetData.borderLineStyles[counter][3]);
+                                        range = sheet.getRange(rangeAddress);
+
+                                        var border;
+                                        switch (sheetData.borderLineStyles[counter][4]) {
+                                            case 'xlContinuous':
+                                                border = "Continuous";
+                                                break;
+                                            case 'xlDash':
+                                                border = "Dash";
+                                                break;
+                                            case 'xlDashDot':
+                                                border = "DashDot";
+                                                break;
+                                            case 'xlDashDotDot':
+                                                border = "DashDotDot";
+                                                break;
+                                            case 'xlDot':
+                                                border = "Dot";
+                                                break;
+                                            case 'xlDouble':
+                                                border = "Double";
+                                                break;
+                                            case 'xlSlantDashDot':
+                                                border = "SlantDashDot";
+                                                break;
+                                            case 'xlLineStyleNone':
+                                                border = "None";
+                                                break;
+                                        }
+
+                                        var positions = sheetData.borderLineStyles[counter][5];
+                                        if (positions) {
+                                            for (var p in positions)
+                                                range.format.borders.getItem(positions[p]).style = border;
+                                        }
+                                        else {
+                                            range.format.borders.getItem('InsideHorizontal').style = border;
+                                            range.format.borders.getItem('InsideVertical').style = border;
+                                            range.format.borders.getItem('EdgeBottom').style = border;
+                                            range.format.borders.getItem('EdgeLeft').style = border;
+                                            range.format.borders.getItem('EdgeRight').style = border;
+                                            range.format.borders.getItem('EdgeTop').style = border;
+                                        }
+                                    }
+                                }
+
+                                // border color
+                                var color;
+                                if (sheetData.borderColors) {
+                                    batchEnd = Math.min(end, sheetData.borderColors.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.borderColors[counter][0], sheetData.borderColors[counter][1]) + ":" + utils.GetAddress(sheetData.borderColors[counter][2], sheetData.borderColors[counter][3]);
+                                        range = sheet.getRange(rangeAddress);
+                                        color = utils.rgbToHex(sheetData.borderColors[counter][4]["r"], sheetData.borderColors[counter][4]["g"], sheetData.borderColors[counter][4]["b"]);
+
+                                        positions = sheetData.borderColors[counter][5];
+                                        if (positions) {
+                                            for (p in positions)
+                                                range.format.borders.getItem(positions[p]).color = color;
+                                        }
+                                        else {
+                                            range.format.borders.getItem('InsideHorizontal').color = color;
+                                            range.format.borders.getItem('InsideVertical').color = color;
+                                            range.format.borders.getItem('EdgeBottom').color = color;
+                                            range.format.borders.getItem('EdgeLeft').color = color;
+                                            range.format.borders.getItem('EdgeRight').color = color;
+                                            range.format.borders.getItem('EdgeTop').color = color;
+                                        }
+                                    }
+                                }
+
+                                // interior color
+                                if (sheetData.interiorColors) {
+                                    batchEnd = Math.min(end, sheetData.interiorColors.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.interiorColors[counter][0], sheetData.interiorColors[counter][1]) + ":" + utils.GetAddress(sheetData.interiorColors[counter][2], sheetData.interiorColors[counter][3]);
+                                        range = sheet.getRange(rangeAddress);
+                                        color = utils.rgbToHex(sheetData.interiorColors[counter][4]["r"], sheetData.interiorColors[counter][4]["g"], sheetData.interiorColors[counter][4]["b"]);
+                                        range.format.fill.color = color;
+                                    }
+                                }
+
+                                //numberformats
+                                if (sheetData.numberFormats) {
+                                    batchEnd = Math.min(end, sheetData.numberFormats.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.numberFormats[counter][0], sheetData.numberFormats[counter][1]) + ":" + utils.GetAddress(sheetData.numberFormats[counter][2], sheetData.numberFormats[counter][3]);
+                                        range = sheet.getRange(rangeAddress);
+                                        range.numberFormat = [
+                                            [sheetData.numberFormats[counter][4]]
+                                        ];
+                                    }
+                                }
+
+                                //autofit
+                                if (sheetData.autoFit) {
+                                    batchEnd = Math.min(end, sheetData.autoFit.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.autoFit[counter][0], sheetData.autoFit[counter][1]) + ":" + utils.GetAddress(sheetData.autoFit[counter][2], sheetData.autoFit[counter][3]);
+                                        range = sheet.getRange(rangeAddress);
+                                        range.format.autofitColumns();
+                                        range.format.autofitRows();
+                                    }
+                                }
+
+                                // defined names
+                                if (sheetData.definedNames) {
+                                    batchEnd = Math.min(end, sheetData.definedNames.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        var sheetName;
+                                        if (window.top === window) {
+                                            //desktop
+                                            sheetName = sheet.names.add(sheetData.definedNames[counter].name, sheetData.definedNames[counter].reference, "");
+                                            sheetName.visible = sheetData.definedNames[counter].visible;
+                                        } else {
+                                            var tmp = sheetData.definedNames[counter].reference.replace(/"/g, '""');
+                                            sheetName = sheet.names.add(sheetData.definedNames[counter].name, tmp, "");
+                                            sheetName.visible = sheetData.definedNames[counter].visible;
+                                        }
+                                    }
+                                }
+
+                                // tables - just formatting
+                                if (sheetData.tables) {
+                                    batchEnd = Math.min(end, sheetData.tables.length);
+                                    for (counter = start; counter < batchEnd; counter++) {
+                                        rangeAddress = utils.GetAddress(sheetData.tables[counter][0], sheetData.tables[counter][1]) + ":" + utils.GetAddress(sheetData.tables[counter][2], sheetData.tables[counter][3]);
+
+                                        // TODO: that's not exactly strict, but if we passed showHeaders == false from COM, it was assumed that there're no headers
+                                        var hasHeaders = sheetData.tables[counter][4].showHeaders;
+                                        // if passed (from JS Reporter), set it up
+                                        if (sheetData.tables[counter][4].hasOwnProperty('hasHeaders') === true)
+                                            hasHeaders = sheetData.tables[counter][4].hasHeaders;
+
+                                        var tabel = sheet.tables.add(rangeAddress, hasHeaders);
+                                        //tabel.name = sheetData.tables[counter][4].name.replace(/[^0-9a-zA-Z]/g, '_');
+                                        tabel.showHeaders = sheetData.tables[counter][4].showHeaders;
+                                        tabel.highlightFirstColumn = sheetData.tables[counter][4].showTableStyleFirstColumn;
+                                        tabel.highlightLastColumn = sheetData.tables[counter][4].showTableStyleLastColumn;
+                                        tabel.style = sheetData.tables[counter][4].style;
+                                    }
+                                }
+                            };
+
+                            var formatObjectLengths = [];
+
+                            if (sheetData.formulas)
+                                formatObjectLengths.push(sheetData.formulas.length);
+                            if (sheetData.fontFormats) {
+                                if (sheetData.fontFormats.name)
+                                    formatObjectLengths.push(sheetData.fontFormats.name.length);
+                                if (sheetData.fontFormats.bold)
+                                    formatObjectLengths.push(sheetData.fontFormats.bold.length);
+                                if (sheetData.fontFormats.color)
+                                    formatObjectLengths.push(sheetData.fontFormats.color.length);
+                                if (sheetData.fontFormats.size)
+                                    formatObjectLengths.push(sheetData.fontFormats.size.length);
+                            }
+                            if (sheetData.merge)
+                                formatObjectLengths.push(sheetData.merge.length);
+                            if (sheetData.horizontalAlignments)
+                                formatObjectLengths.push(sheetData.horizontalAlignments.length);
+                            if (sheetData.verticalAlignments)
+                                formatObjectLengths.push(sheetData.verticalAlignments.length);
+                            if (sheetData.borderLineStyles)
+                                formatObjectLengths.push(sheetData.borderLineStyles.length);
+                            if (sheetData.borderColors)
+                                formatObjectLengths.push(sheetData.borderColors.length);
+                            if (sheetData.interiorColors)
+                                formatObjectLengths.push(sheetData.interiorColors.length);
+                            if (sheetData.numberFormats)
+                                formatObjectLengths.push(sheetData.numberFormats.length);
+                            if (sheetData.autoFit)
+                                formatObjectLengths.push(sheetData.autoFit.length);
+                            if (sheetData.hyperlinks)
+                                formatObjectLengths.push(sheetData.hyperlinks.length);
+                            if (sheetData.definedNames)
+                                formatObjectLengths.push(sheetData.definedNames.length);
+                            if (sheetData.tables)
+                                formatObjectLengths.push(sheetData.tables.length);
+
+                            var maxNumFormatRanges = utils.maxElement(formatObjectLengths);
+
+                            var batchFormatSize = Math.min(def.MAX_FORMAT_BATCH_SYNC_SIZE, maxNumFormatRanges);
+                            var numFormatBatches = Math.floor(maxNumFormatRanges / batchFormatSize);
+
+                            if (numFormatBatches && numFormatBatches > 0) {
+                                // chain the promises for each formatting batch for a given sheet
+                                if (needToSync() === true) {
+                                    for (batch = 0; batch <= numFormatBatches; batch++) {
+                                        (function (batch) {
+                                            var batchStart = batch * def.MAX_FORMAT_BATCH_SYNC_SIZE;
+                                            var batchEnd = (batch + 1) * def.MAX_FORMAT_BATCH_SYNC_SIZE;
+
+                                            promise = promise.then(function () {
+                                                return Excel.run(function (ctxFormatting) {
+                                                    utils.suspend(ctxFormatting);
+                                                    writeFormatBatch(ctxFormatting, batchStart, batchEnd);
+
+                                                    numSyncs++;
+                                                    return ctxFormatting.sync();
+                                                }).catch(common.errorHandler);
+                                            });
+                                        })(batch);
+                                    }
+                                } else
+                                    promise = promise.then(function () {
+                                        return Excel.run(function (ctxFormatting) {
+                                            utils.suspend(ctxFormatting);
+                                            for (batch = 0; batch <= numFormatBatches; batch++) {
+                                                var batchStart = batch * def.MAX_FORMAT_BATCH_SYNC_SIZE;
+                                                var batchEnd = (batch + 1) * def.MAX_FORMAT_BATCH_SYNC_SIZE;
+
+                                                writeFormatBatch(ctxFormatting, batchStart, batchEnd);
+                                            }
+
+                                            numSyncs++;
+                                            return ctxFormatting.sync();
+                                        }).catch(common.errorHandler);
+                                    });
+                            }
+
+                            promise = promise.then(function () {
+                                console.log(sheetData.name + ': #syncs= ' + numSyncs);
+                            });
+                        };
+
+                        // create an empty promise for chaining
+                        var promise = new OfficeExtension.Promise(function (resolve, reject) { resolve(null); });
+                        // write all sheets one by one
+                        for (var sheetID = data.numSheets; sheetID--;)
+                            writeSheet(sheetID);
+
+                        // return the compound promise. when it resolves, everything should be already populated on worksheets
+                        return promise;
+                    });
+                }).catch(common.errorHandler);
+            });
+        }).catch(common.errorHandler);
+    },
+
+    //getdataDB: function (args) {
+    //    addinAdapter.setStorageValue("executor", "common.getdataDB");
+    //    common.checkToken().then(function () {
+    //        common.updateLocalStorage().then(function () {
+    //            common.openDialog(515, 750, '/common/webaddins/commonapp/appui/SampleFromDatabase.html', '?app=1' + ((typeof extraParams !== "undefined") ? extraParams : ""));
+    //        });
+    //    }).catch(function () {
+    //    });
+    //    if (args) {
+    //        args.completed();
+    //    }
+    //},
+
+    //getdataFF: function (args) {
+    //    addinAdapter.setStorageValue("executor", "common.getdataFF");
+    //    common.checkToken().then(function () {
+    //        common.updateLocalStorage().then(function () {
+    //            common.openDialog(515, 650, '/common/webaddins/commonapp/appui/SampleFromFileSystem.html', '?app=1' + ((typeof extraParams !== "undefined") ? extraParams : ""));
+    //        });
+    //    }).catch(function () {
+    //    });
+    //    if (args) {
+    //        args.completed();
+    //    }
+    //},
+
+    getdataResultsBD: function (args) {
+        addinAdapter.setStorageValue("executor", "common.getdataResultsBD");
+        common.checkToken().then(function () {
+            common.updateLocalStorage().then(function () {
+                common.openDialog(420, 450, '/common/webaddins/commonapp/appui/GetBigDataJobResults.html', '?app=1' + ((typeof extraParams !== "undefined") ? extraParams : ""));
+            });
+        }).catch(function () {
+        });
+        if (args) {
+            args.completed();
+        }
+    },
+
+    getdataSampleBD: function (args) {
+        addinAdapter.setStorageValue("executor", "common.getdataSampleBD");
+        common.checkToken().then(function () {
+            common.updateLocalStorage().then(function () {
+                common.openDialog(515, 770, '/common/webaddins/commonapp/appui/SampleBigdata.html', '?app=1' + ((typeof extraParams !== "undefined") ? extraParams : ""));
+            });
+        }).catch(function () {
+        });
+        if (args) {
+            args.completed();
+        }
+    },
+
+    getdataSummBD: function (args) {
+        addinAdapter.setStorageValue("executor", "common.getdataSummBD");
+        common.checkToken().then(function () {
+            common.updateLocalStorage().then(function () {
+                common.openDialog(515, 770, '/common/webaddins/commonapp/appui/SummarizeBigData.html', '?app=1' + ((typeof extraParams !== "undefined") ? extraParams : ""));
+            });
+        }).catch(function () {
+        });
+        if (args) {
+            args.completed();
+        }
+    },
+
+    getDataWS: function (args) {
+        addinAdapter.setStorageValue("executor", "common.getDataWS");
+        common.checkToken().then(function () {
+            common.updateLocalStorage().then(function () {
+                common.openDialog(515, 830, '/common/webaddins/commonapp/appui/SampleFromWorksheet.html', '?app=1' + ((typeof extraParams !== "undefined") ? extraParams : ""));
+            });
+        }).catch(function () {
+        });
+        if (args) {
+            args.completed();
+        }
+    },
+
+    getSliceAsync: function (file, nextSlice, sliceCount, gotAllSlices, docdataSlices, slicesReceived, action, executor) {
+        file.getSliceAsync(nextSlice, function (sliceResult) {
+            if (sliceResult.status === "succeeded") {
+                if (!gotAllSlices) { // Failed to get all slices, no need to continue.
+                    return;
+                }
+
+                // Got one slice, store it in a temporary array.
+                // (Or you can do something else, such as
+                // send it to a third-party server.)
+                docdataSlices[sliceResult.value.index] = new Uint8Array(sliceResult.value.data);
+                if (++slicesReceived === sliceCount) {
+                    // All slices have been received.
+                    file.closeAsync();
+
+                    onGotAllSlices(docdataSlices, action, executor);
+                }
+                else {
+                    common.getSliceAsync(file, ++nextSlice, sliceCount, gotAllSlices, docdataSlices, slicesReceived, action, executor);
+                }
+            }
+            else {
+                gotAllSlices = false;
+                file.closeAsync();
+                common.showWarningDialog(sliceResult.error.message);
+            }
+        });
+    },
+
+    getUserType: function () {
+        var userType = undefined;
+        try {
+            var token = addinAdapter.getStorageValue('infoToken');
+            if (token) {
+                token = JSON.parse(addinAdapter.decodeBase64(token.split('.')[1]));
+                userType = token.userType;
+            }
+        } catch (err) {
+            console.log("unable to get user type");
+        }
+        return userType;
+    },
+
+    loadWorkbookName: function () {
+        return Excel.run(function (context) {
+            var wbk = context.workbook;
+            wbk.load('name');
+            return context.sync().then(function () {
+                common.app.workbook = wbk.name;
+            });
+        });
+    },
+
+    insertSheet: function (name, num, cb) {
+        var newName;
+        if (num === 0) {
+            newName = name;
+        } else {
+            newName = name + ' ' + num;
+        }
+        Excel.run(function (ctx) {
+            var worksheets = ctx.workbook.worksheets;
+            var new_sheet = worksheets.add(newName);
+            return ctx.sync().then(function () {
+                new_sheet.activate();
+                cb(newName);
+            }).catch(function (error) {
+                common.insertSheet(name, num + 1, cb);
+            });
+        });
+    },
+
+    // finds the unique name for the sheet (appending/incrementing the integer index to name)
+    // calls callback(result_name)
+    uniqueSheetName: function (name, callback) {
+        Excel.run(function (context) {
+            var sheets = context.workbook.worksheets;
+            sheets.load("items/name");
+
+            return context.sync().then(function () {
+
+                var existingSheets = [];
+                for (var i in sheets.items)
+                    existingSheets.push(sheets.items[i].name);
+
+                var newName = name; var num = 0;
+                while (existingSheets.indexOf(newName) > -1)
+                    newName = name + ' ' + ++num;
+
+                return callback(newName);
+            });
+
+        }).catch(common.errorHandler);
+    },
+
+    isLoggedIn: function () {
+        return (addinAdapter.getStorageValue('userToken') ? true : false);
+    },
+
+    license: function (args) {
+        // TODO Should this be removed?
+        var width = 800, height = 600;
+        common.openDialog(width, height, 'https://analyticsolver.com/subscriptionmgr/manage');
+
+        if (args) {
+            args.completed();
+        }
+    },
+
+    licenseExpired: function () {
+        var expired = undefined;
+        var token = addinAdapter.getStorageValue('productToken');
+        if (token) {
+            token = JSON.parse(addinAdapter.decodeBase64(token.split('.')[1]));
+            expired = token.expired;
+        }
+        return expired;
+    },
+
+    loadOptExample: function (filename) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', config.examplesFileUrl + filename, true);
+        xhr.responseType = "blob";
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4) {
+                var blob = xhr.response;
+
+                var reader = new FileReader();
+                reader.readAsDataURL(blob);
+                reader.onloadend = function () {
+                    var startIndex = reader.result.indexOf("base64,");
+                    var workbookContents = reader.result.substr(startIndex + 7);
+                    Excel.run(function (context) {
+                        Excel.createWorkbook(workbookContents);
+                        //Excel.createWorkbook();
+                        return context.sync().catch(function (err) {
+                            common.errorHandler(err);
+                        });
+                    });
+                };
+            }
+        };
+        xhr.send();
+        common.closeDialog();
+    },
+
+    login: function () {
+        common.showUserDialog(config.loginUrl + (addinAdapter.getStorageValue("lockCode") || ""));
+    },
+
+    loginLogout: function (args) {
+        addinAdapter.delStorageValue("executor");
+
+        if (common.isLoggedIn()) {
+            common.logout();
+        } else {
+            common.login();
+        }
+
+        if (args) {
+            args.completed();
+        }
+    },
+
+    logout: function () {
+        var useDflt = addinAdapter.getStorageValue("svrSettingUseDflt");
+
+        // Only log the user out in the default use case.
+        if (useDflt === null || useDflt === "true") {
+            common.showUserDialog("/common/webaddins/CommonApp/Pages/Logout.html");
+        }
+    },
+
+    manageAccount: function (args) {
+        common.showLicenseCenter(args, "common.manageAccount", "account");
+    },
+
+    manageLicenses: function (args) {
+        common.showLicenseCenter(args, "common.manageLicenses", "licenses");
+    },
+
+    messageHandler: function (arg, promise) {
+        var ajaxOpts = common.app.ajaxOpts;
+        var message = JSON.parse(arg.message);
+
+        // user/account/license
+        switch (message.func) {
+            case 'cancelLogin':
+                common.clearLogin();
+                addinAdapter.setStorageValue('lockCode', message.lc);
+                common.closeDialog();
+                addinAdapter.delStorageValue("executor");
+                return true;
+            case 'clearLogin':
+                common.clearLogin();
+                addinAdapter.setStorageValue('lockCode', message.lc);
+                return true;
+            case 'renewLicense':
+                common.processtoken(message.tkn, message.name, false);
+                addinAdapter.setStorageValue('lockCode', message.lc);
+                addinAdapter.setStorageValue('productToken', message.ptkn);
+                common.runExecutor();
+                return true;
+            case 'userClose':
+                common.closeDialog();
+                common.runExecutor();
+                return true;
+            case 'userCommercialPurchaseLicense':
+                addinAdapter.delStorageValue("executor");
+                common.closeDialogAsync(function () {
+                    common.commercialPurchaseLicense(null, message.data);
+                });
+                return true;
+            case 'userCommercialPurchaseReceiptInit':
+                var dialog = common.app.dialog;
+                dialog.addEventHandler(Office.EventType.DialogEventReceived, function (arg) {
+                    if (arg.error === 12006) {
+                        common.app.dialog = dialog;
+                        common.showRetrieveLicenseDialog();
+                    }
+                });
+                return true;
+            case 'userForgotPassword':
+                addinAdapter.delStorageValue("executor");
+                common.closeDialogAsync(function () {
+                    common.showUserDialog("/User/ForgotPasswordAccount");
+                });
+                return true;
+            case 'userLicenses':
+                addinAdapter.delStorageValue("executor");
+                common.closeDialogAsync(function () {
+                    common.manageLicenses();
+                });
+                return true;
+            case 'userLogin':
+                common.processtoken(message.tkn, message.name, false);
+                addinAdapter.setStorageValue('lockCode', message.lc);
+                addinAdapter.setStorageValue('productToken', message.ptkn);
+                addinAdapter.setStorageValue('infoToken', message.utkn);
+                return true;
+            case 'userLogout':
+                addinAdapter.delStorageValue("executor");
+                common.closeDialogAsync(function () {
+                    common.logout();
+                });
+                return true;
+            case 'userRetrieveLicense':
+                common.showRetrieveLicenseDialog();
+                return true;
+            case 'userStudentPurchaseLicense':
+                addinAdapter.delStorageValue("executor");
+                common.closeDialogAsync(function () {
+                    common.studentPurchaseLicense(null, message.data);
+                });
+                return true;
+            case 'userWelcome':
+                common.closeDialogAsync(function () {
+                    common.welcomeScreen();
+                });
+                return true;
+            case 'supportModeOK':
+                if (message.type)
+                    addinAdapter.setStorageValue('supportMode', message.type.toString());
+                common.closeDialog();
+                return true;
+        }
+
+        // excel utils
+        switch (message.func) {
+            case 'setWorksheet':
+                Excel.run(function (context) {
+                    var sheet = context.workbook.worksheets.getItem(message.sheet);
+                    sheet.activate();
+                    return context.sync();
+                });
+                return true;
+            case 'getSheetNamesInfo':
+                common.updateLocalStorage().then(function () {
+                    var tmp = addinAdapter.getStorageValue('ExcelInfo');
+                    addinAdapter.setStorageValue(message.valKey, tmp);
+                    addinAdapter.setStorageValue(message.sigKey, "true");
+                });
+                return true;
+            case 'getDefaultRange':
+                common.updateLocalStorage().then(function () {
+                    var tmp = addinAdapter.getStorageValue('ExcelInfo');
+                    addinAdapter.setStorageValue(message.valKey, tmp);
+                    addinAdapter.setStorageValue(message.sigKey, "true");
+                });
+                return true;
+            case 'getExcelinfo':
+                common.updateLocalStorage().then(function () {
+                    addinAdapter.setStorageValue("newStorage", "true");
+                });
+                return true;
+            case 'getRow':
+                Excel.run(function (context) {
+                    var signalKey = (message.sigKey ? message.sigKey : "newRow"),
+                        valueKey = (message.valKey ? message.valKey : "ExcelRow");
+                    var sheet;
+                    if (message.sheet) {
+                        sheet = context.workbook.worksheets.getItem(message.sheet);
+                    } else {
+                        sheet = context.workbook.worksheets.getActiveWorksheet();
+                    }
+                    var range = sheet.getRange(message.range);
+                    range.load("values");
+                    return context.sync()
+                        .then(function () {
+                            var rowValues = range.values[message.row];
+                            if (message.trim && message.trim == true) {
+                                for (var i = 0; i < rowValues.length; i++)
+                                    rowValues[i] = rowValues[i].trim();
+                            }
+
+                            var ExcelInfo = {
+                                row: [rowValues]
+                            };
+
+                            addinAdapter.setStorageValue(valueKey, ExcelInfo);
+                            addinAdapter.setStorageValue(signalKey, "true");
+                            return true;
+                        }).catch(function (err) {
+                            addinAdapter.setStorageValue("Handler_Error", err);
+                        });
+                });
+                return true;
+            case 'getJsonObject':
+                Excel.run(function (ctx) {
+                    var signalKey = (message.sigKey ? message.sigKey : "newJson"),
+                        valueKey = (message.valKey ? message.valKey : "ExcelInfoObject");
+                    var basename = [];
+                    var sheet;
+                    if (message.sheet) {
+                        sheet = ctx.workbook.worksheets.getItem(message.sheet);
+                    } else {
+                        sheet = ctx.workbook.worksheets.getActiveWorksheet();
+                    }
+                    for (var i = 1; i <= 500; i++) {
+                        basename.push(sheet.names.getItemOrNullObject(message.name + '_' + i));
+                        basename[i - 1].load();
+                    }
+                    return ctx.sync().then(function () {
+                        var configStr = '';
+                        for (var i = 0; i < basename.length; i++) {
+                            if (basename[i] && basename[i].value) {
+                                configStr += basename[i].value.substring(1);
+                            } else {
+                                break;
+                            }
+                        }
+
+                        var ExcelInfo = {
+                            jsonObject: null
+                        };
+
+                        if (configStr !== '') {
+                            try {
+                                ExcelInfo.jsonObject = JSON.parse(configStr);
+                            } catch (ex) {
+                                try {
+                                    // in the case of Excel desktop, we need to un-escape the double double quotes
+                                    configStr = configStr.replace(/""/g, '"');
+                                    ExcelInfo.jsonObject = JSON.parse(configStr);
+                                } catch (ex2) {
+                                    console.log("unable to parse : " + configStr + " reason: " + ex2);
+                                }
+                            }
+                        }
+
+                        addinAdapter.setStorageValue(valueKey, ExcelInfo);
+                        addinAdapter.setStorageValue(signalKey, "true");
+                    }).catch(function (err) {
+                        addinAdapter.setStorageValue("Handler_Error", err);
+                    });
+                });
+                return true;
+            case 'writeJsonString':
+                Excel.run(function (ctx) {
+                    var n = null;
+                    for (var i = 1; i < 100; i++) {
+                        n = ctx.workbook.worksheets.getActiveWorksheet().names.getItemOrNullObject(message.name + '_' + i);
+                        if (n) {
+                            n.delete();
+                        }
+                    }
+                    return ctx.sync().then(function () {
+                        var maxLen = 200;
+                        if (message.jsonStr.length > maxLen) {
+                            var beg = 0;
+                            var charCount = maxLen;
+                            for (var i = 1; beg < message.jsonStr.length; ++i) {
+                                var s1 = '\'' + message.jsonStr.substr(beg, charCount);
+                                if (window.top !== window) {
+                                    s1 = s1.replace(/"/g, '""');
+                                }
+                                //n = ctx.workbook.worksheets.getActiveWorksheet().names.getItemOrNullObject(message.name + '_' + i);
+                                //if (n) {
+                                //    n.delete();
+                                //}
+                                n = ctx.workbook.worksheets.getActiveWorksheet().names.add(message.name + '_' + i, s1, "");
+                                n.visible = false;
+                                beg += charCount;
+                                charCount = Math.min(maxLen, message.jsonStr.length - beg);
+                            }
+                        } else {
+                            //n = ctx.workbook.worksheets.getActiveWorksheet().names.getItemOrNullObject(message.name + '_1');
+                            //if (n) {
+                            //    n.delete();
+                            //}
+                            var s2 = '\'' + message.jsonStr;
+                            if (window.top !== window) {
+                                s2 = s2.replace(/"/g, '""');
+                            }
+                            n = ctx.workbook.worksheets.getActiveWorksheet().names.add(message.name + '_1', s2, "");
+                            n.visible = false;
+                        }
+                        return ctx.sync().catch(common.errorHandler);
+                    });
+                });
+                return true;
+            case 'getData':
+                Excel.run(function (ctx) {
+                    var signalKey = (message.sigKey ? message.sigKey : "newData"),
+                        valueKey = (message.valKey ? message.valKey : "rangeData");
+                    var range = ctx.workbook.worksheets.getActiveWorksheet().getRange(message.address);
+                    range.load('values');
+                    return ctx.sync().then(function () {
+                        addinAdapter.setStorageValue(valueKey, JSON.stringify(range.values));
+                        addinAdapter.setStorageValue(signalKey, "true");
+                    });
+                });
+                return true;
+            case 'getMultiRangeData':
+                Excel.run(function (ctx) {
+                    var signalKey = (message.sigKey ? message.sigKey : "newMultiData"),
+                        valueKey = (message.valKey ? message.valKey : "multiRangeData");
+                    var ranges = [];
+                    for (var i = 0; i < message.ranges.length; i++) {
+                        ranges.push(ctx.workbook.worksheets.getActiveWorksheet().getRange(message.ranges[i]));
+                        ranges[i].load('values');
+                    }
+                    return ctx.sync().then(function () {
+                        var multiRangeData = {};
+                        for (var i = 0; i < message.ranges.length; i++) {
+                            multiRangeData[message.ranges[i]] = ranges[i].values;
+                        }
+                        addinAdapter.setStorageValue(valueKey, multiRangeData);
+                        addinAdapter.setStorageValue(signalKey, "true");
+                    });
+                });
+                return true;
+            case 'writeValue':
+                Excel.run(function (ctx) {
+                    var range = ctx.workbook.worksheets.getItem(message.sheet).getRange(message.range);
+                    range.values = [[message.value]];
+                    return ctx.sync();
+                });
+                return true;
+            case 'writeValueAtRangeOffset':
+                Excel.run(function (ctx) {
+                    var range = ctx.workbook.worksheets.getItem(message.sheet).getRange(message.range).getOffsetRange(message.rowOffset, message.colOffset);
+                    range.values = [[message.value]];
+                    return ctx.sync();
+                });
+                return true;
+            case 'writeAllValueAtRangeOffset':
+                Excel.run(function (ctx) {
+                    var range = ctx.workbook.worksheets.getItem(message.sheet).getRange(message.range).getOffsetRange(1 + message.extra, 1).getAbsoluteResizedRange(message.rowOffset, message.colOffset);
+                    range.values = message.value;
+                    return ctx.sync();
+                });
+                return true;
+            case 'removeDefinedName':
+                Excel.run(function (ctx) {
+                    var n = ctx.workbook.worksheets.getItem(message.sheet).names.getItemOrNullObject(message.name);
+                    if (n) {
+                        n.delete();
+                    }
+                    return ctx.sync();
+                });
+                return true;
+            case 'addDefinedName':
+                Excel.run(function (ctx) {
+                    var n = ctx.workbook.worksheets.getItem(message.sheet).names.getItemOrNullObject(message.name);
+                    if (n) {
+                        n.delete();
+                    }
+                    n = ctx.workbook.worksheets.getItem(message.sheet).names.add(message.name, message.value, "");
+                    n.visible = false;
+                    return ctx.sync();
+                });
+                return true;
+        }
+
+        // DM
+        switch (message.func) {
+            case 'clusterCheck':
+                ajaxOpts.data = JSON.stringify(message.data);
+                ajaxOpts.method = 'POST';
+                ajaxOpts.signalKey = (message.sigKey ? message.sigKey : "newClusterCheck");
+                ajaxOpts.valueKey = (message.valKey ? message.valKey : "ClusterCheck");
+
+                $.ajax(common.app.server + '/xlminer/582/BigData', ajaxOpts)
+                    .done(function (data, textStatus, jqXHR) {
+                        addinAdapter.setStorageValue(ajaxOpts.valueKey, data);
+                        addinAdapter.setStorageValue(ajaxOpts.signalKey, "true");
+                        delete ajaxOpts.signalKey;
+                        delete ajaxOpts.valueKey;
+                    })
+                    .fail(function (jqXHR, textStatus, errorThrown) {
+                        delete ajaxOpts.signalKey;
+                        delete ajaxOpts.valueKey;
+                    });
+                return true;
+            case 'inferSchema':
+                ajaxOpts.data = JSON.stringify(message.params);
+                ajaxOpts.method = 'POST';
+                ajaxOpts.signalKey = (message.sigKey ? message.sigKey : "newSchema");
+                ajaxOpts.valueKey = (message.valKey ? message.valKey : "Schema");
+
+                $.ajax(common.app.server + '/xlminer/580/BigData', ajaxOpts)
+                    .done(function (data, textStatus, jqXHR) {
+                        addinAdapter.setStorageValue(ajaxOpts.valueKey, data);
+                        addinAdapter.setStorageValue(ajaxOpts.signalKey, "true");
+                        delete ajaxOpts.signalKey;
+                        delete ajaxOpts.valueKey;
+                    })
+                    .fail(function (jqXHR, textStatus, errorThrown) {
+                        delete ajaxOpts.signalKey;
+                        delete ajaxOpts.valueKey;
+                    });
+                return true;
+            case 'jobStatus':
+                ajaxOpts.data = JSON.stringify(message.params);
+                ajaxOpts.method = 'POST';
+                ajaxOpts.signalKey = (message.sigKey ? message.sigKey : "newStatus");
+                ajaxOpts.valueKey = (message.valKey ? message.valKey : "JobStatus");
+
+                $.ajax(common.app.server + '/xlminer/581/BigData', ajaxOpts)
+                    .done(function (data, textStatus, jqXHR) {
+                        addinAdapter.setStorageValue(ajaxOpts.valueKey, data);
+                        addinAdapter.setStorageValue(ajaxOpts.signalKey, "true");
+                        delete ajaxOpts.signalKey;
+                        delete ajaxOpts.valueKey;
+                    })
+                    .fail(function (jqXHR, textStatus, errorThrown) {
+                        delete ajaxOpts.signalKey;
+                        delete ajaxOpts.valueKey;
+                    });
+                return true;
+            case 'describeColumns':
+                Excel.run(function (context) {
+                    var signalKey = (message.sigKey ? message.sigKey : "newDescript");
+                    var valueKey = (message.valKey ? message.valKey : "ExcelColumns");
+                    var ranges = [];
+                    var offSets = [];
+                    var sheet = context.workbook.worksheets.getItem(message.params.wksheet);
+                    var range = sheet.getRange(message.params.data_range);
+                    for (var i = 0; i < message.params.input_cols.length; i++) {
+                        ranges.push(sheet.getRange(message.params.data_range).getColumn(message.params.input_cols[i].varId));
+                        ranges[i].load("values");
+                        offSets.push(message.params.input_cols[i].varId);
+                    }
+                    return context.sync().then(function () {
+                        var d = [];
+                        for (var j = 0; j < ranges[0].values.length; j++) {
+                            var x = [];
+                            for (var i = 0; i < message.params.input_cols.length; i++) {
+                                var tmp = ranges[i].values;
+                                x = x.concat(tmp[j]);
+                            }
+                            d.push(x);
+                        }
+                        var descrData = {
+                            flags: message.params.descrFlags,
+                            offSets: offSets,
+                            numOffsets: message.params.input_cols.length,
+                            data: JSON.stringify({
+                                header: message.params.has_header,
+                                data: d
+                            })
+                        };
+                        var descrColsAjaxOpts = {
+                            method: 'POST',
+                            headers: {
+                                Authorization: "Bearer " + addinAdapter.getStorageValue('userToken')
+                            },
+                            contentType: "application/json",
+                            cache: false,
+                            context: this,
+                            data: JSON.stringify(descrData)
+                        };
+                        /* this works when calling hristo's server
+                        ajaxOpts.processData = false;
+                        ajaxOpts.data = JSON.stringify({
+                            flags: message.params.descrFlags,
+                            offSets: offSets,
+                            numOffsets: message.params.input_cols.length,
+                            data: {
+                                header: message.params.has_header,
+                                data: d
+                            }
+                        });
+                        */
+                        $.ajax(common.app.server + '/datautil', descrColsAjaxOpts)
+                            .done(function (data, textStatus, jqXHR) {
+                                var ExcelInfo = {
+                                    descriptors: data.colDescriptions
+                                };
+                                addinAdapter.setStorageValue(valueKey, ExcelInfo);
+                                addinAdapter.setStorageValue(signalKey, "true");
+                            })
+                            .fail(function (jqXHR, textStatus, errorThrown) {
+                            });
+                    }).catch(function (err) {
+                        // describe cols is used by XLMiner Dialogs. in order to show a new warning dialog,
+                        // we have to first close the XLMiner dialog
+                        common.closeDialogAsync(function () {
+                            if (err && err.message) {
+                                err.message += " This could be caused by a workbook that is too large.";
+                            }
+                            common.errorHandler(err);
+                        });
+                    });
+                });
+                return true;
+        }
+
+        // auxiliary
+        switch (message.func) {
+            case 'close':
+                if (message.reason && message.reason === "canceled") {
+                    if (typeof Ext !== "undefined") {
+                        Ext.fireEvent("xlmdialogcanceled");
+                    }
+                }
+                common.closeDialog();
+                return true;
+            case 'pickerAction':
+                if (typeof message.action === "object") {
+                    window[message.action.func].apply(null, message.action.args);
+                } else {
+                    window[message.action]();
+                }
+                return true;
+            case 'pickerFunction':
+                common.closeDialog();
+                if (typeof message.action === "object") {
+                    window[message.action.func].apply(null, message.action.args);
+                } else {
+                    window[message.action]();
+                }
+                return true;
+            case 'showProductSelectionWizard':
+                common.closeDialogAsync(function () {
+                    common.showProductSelectionWizard();
+                });
+                return true;
+            case 'showWarning':
+                console.log(message.warning + (message.error ? " Error: " + message.error : ""));
+                common.closeDialogAsync(function () {
+                    common.showWarningDialog(message.warning);
+                });
+				return true;
+			case 'createTable':
+				common.closeDialog();
+				common.createTable(message.table);
+				return true;
+			case 'createDecFunc':
+				common.closeDialog();
+				common.createDecFunc(message.table);
+				return true;
+        }
+
+        return false;
+    },
+
+    openDialog: function (width, height, url, queryParams, displayInIframe) {
+        if (typeof queryParams === "undefined") {
+            queryParams = "";
+        }
+
+        if (typeof displayInIframe === "undefined") {
+            displayInIframe = true;
+        }
+
+        var w, h;
+        if (window.top === window) {
+            // desktop
+            w = 100 * (width / screen.width);
+            h = 100 * (height / screen.height);
+        } else {
+            // browser
+            w = 100 * (width / window.outerWidth);
+            h = 100 * (height / window.outerHeight);
+        }
+
+        var totalurl = window.location.protocol + "//" + window.location.host + url + queryParams;
+
+        Office.context.ui.displayDialogAsync(totalurl,
+            { height: h, width: w, displayInIframe: displayInIframe }, common.dialogCallback);
+    },
+
+    processtoken: function (token, name, customToken) {
+        try {
+            var ret = 0;
+            if (!customToken) {
+                var s = token.split('.');
+                var tkn = JSON.parse(addinAdapter.decodeBase64(s[1]));
+                var role = tkn.role;
+                var userid = tkn.userid;
+                ret = userid;
+                if (role == "platform") {
+                    common.app.rasonProductType = 1;
+                } else if (role == "pro") {
+                    common.app.rasonProductType = 2;
+                } else {
+                    common.app.rasonProductType = 3;
+                }
+                common.app.userId = userid;
+                common.app.ajaxOpts.headers = {
+                    'Authorization': 'Bearer ' + token
+                };
+            } else {
+                var n = token.search(/certificate/i);
+                if (n < 0) {
+                    token = "Certificate " + token;
+                }
+                common.app.ajaxOpts.headers = {
+                    'Authorization': token
+                };
+                common.app.server = addinAdapter.getStorageValue("svrSettingUrl");
+            }
+            //engines = JSON.parse(addinAdapter.decodeBase64(s[1])).engines;
+            addinAdapter.setStorageValue('userToken', token);
+            addinAdapter.setStorageValue('userName', name);
+            addinAdapter.setStorageValue('pType', common.app.rasonProductType);
+
+            //$('#mylgin').html(name + ' (Logout)');
+
+            return ret;
+        } catch (ex) {
+            return 192408;
+        }
+    },
+
+    prodWiz: function (args) {
+        var width = 650, height = 600;
+
+        common.openDialog(width, height, 'https://analyticsolver.com/ProductSelection/Wizard');
+
+        if (args) {
+            args.completed();
+        }
+    },
+
+    readAppSetting: function (settingKey) {
+        return Excel.run(function (context) {
+            var settings = context.workbook.settings;
+            var the_setting = settings.getItemOrNullObject(settingKey);
+            the_setting.load();
+            return context.sync().then(function () {
+                var val = "";
+                if (!the_setting.isNullObject) {
+                    val = the_setting.value;
+                }
+                return val;
+            });
+        }).catch(function () {
+            return "";
+        });
+    },
+
+    //registerAppSettingsListener: function(fn, ctxt) {
+    //    return Excel.run(function (context) {
+    //        var settings = context.workbook.settings;
+    //        var x = settings.onSettingsChanged.add(function (arg) {
+    //            fn(arg, ctxt, x);
+    //        });
+    //        return context.sync();
+    //    });
+    //},
+
+    renewLicense: function () {
+        var token = addinAdapter.getStorageValue('productToken');
+        if (token) {
+            token = JSON.parse(addinAdapter.decodeBase64(token.split('.')[1]));
+            var duration = (Date.now() - token.created) / 1000;
+
+            if (duration <= token.licenseDuration) {
+                return new OfficeExtension.Promise(function (resolve, reject) {
+                    resolve();
+                });
+            }
+        }
+
+        return $.ajax({
+            url: config.renewUrl,
+            type: "POST",
+            dataType: "json",
+            cache: false,
+            data: {
+                lockCode: addinAdapter.getStorageValue("lockCode"),
+                productToken: addinAdapter.getStorageValue("productToken"),
+                userToken: addinAdapter.getStorageValue("userToken"),
+                isCom: document.FrontlineCOM ? true : false
+            }
+        }).then(function (data, textStatus, jqXHR) {
+            return new OfficeExtension.Promise(function (resolve, reject) {
+                messageHandler({ message: JSON.stringify(data.message) });
+
+                switch (data.action) {
+                    case 'login':
+                        common.login();
+                        break;
+                    case 'expired':
+                    case 'notify':
+                        addinAdapter.setStorageValue("viewName", data.viewName);
+                        addinAdapter.setStorageValue("viewModel", data.viewModel);
+                        common.showUserDialog("/common/webaddins/CommonApp/Pages/Expired.html");
+                        break;
+                    default:
+                        break;
+                }
+
+                reject();
+            });
+        }, function (jqXHR, textStatus, errorThrown) {
+            return new OfficeExtension.Promise(function (resolve, reject) {
+                if (duration <= token.licenseDuration + token.offlineDuration) {
+                    resolve();
+                } else {
+                    common.clearLogin();
+                    common.showWarningDialog("Network communication error. Please try again.");
+                    reject();
+                }
+            });
+        });
+    },
+
+    runExecutor: function () {
+        var exec = addinAdapter.getStorageValue("executor");
+
+        if (exec && exec != "") {
+            Excel.run(function (ctx) {
+                return ctx.sync().then(function () {
+                    var executor;
+                    try {
+                        executor = JSON.parse(exec);
+                    }
+                    catch (error) {
+                        executor = { "func": exec, "args": null };
+                    }
+                    var obj = window;
+                    var functions = executor.func.split(".");
+                    for (var i = 0; i < functions.length; i++) {
+                        obj = obj[functions[i]];
+                    }
+                    if (obj && obj !== window) {
+                        obj.apply(null, executor.args);
+                    }
+                }).catch(common.errorHandler);
+            });
+        }
+    },
+
+    saveAppSetting: function (settingKey, settingValue) {
+        return Excel.run(function (context) {
+            var settings = context.workbook.settings;
+            var the_setting = settings.add(settingKey, settingValue);
+            return context.sync().catch(function (err) {
+                console.log("Failed to save app setting: " + err);
+                return null;
+            });
+        }).catch(function () {
+            return null;
+        });
+    },
+
+    sendCloseDialogMsg: function () {
+        Office.context.ui.messageParent(JSON.stringify({
+            func: 'close'
+        }));
+    },
+
+    sendTrackAction: function (event, eventVal) {
+        var user_type = common.getUserType() || "Unknown";
+
+        if (event === 'undefined' || event === null || user_type.toLowerCase() === "student")
+            return;
+
+        var id = common.app.userId;
+
+        if (!eventVal) {
+            eventVal = 0;
+        }
+
+        var supMode = addinAdapter.getStorageValue('supportMode');
+        if (supMode !== 'undefined' && supMode !== null) {
+            if (supMode === '3') // not using trackaction
+                return;
+
+            if (supMode === '2') // anonymous
+                id = 416572;
+        }
+
+        if (id !== null) {
+            if (event.indexOf('/') == 0) {
+                event = event.substring(1);
+            }
+            var earl;
+            if (false /*TODO check for student*/) {
+                // if ((common.product == common.PROD_EDU)) {
+                earl = 'https://www.solver.com/trackedaction/' + id + '/' + event + '/' + eventVal;
+            } else {
+                earl = 'https://www.solver.com/trackaction/' + id + '/' + event + '/' + eventVal;
+            }
+
+            $.ajax({
+                method: "GET",
+                url: earl,
+                context: this
+            }).done(function (resultData, textStatus, jqXHR) { });
+        }
+    },
+
+    showExamples: function (args) {
+        addinAdapter.setStorageValue("executor", "common.showExamples");
+        common.checkToken().then(function () {
+            common.openDialog(870, 620, addinAdapter.getPagesPath() + config.examplesOverviewUrl);
+        }).catch(function () {
+        });
+
+        if (args) { args.completed(); }
+    },
+
+    showHelpCenter: function (args, executor, id) {
+        addinAdapter.setStorageValue("executor", executor);
+        common.openDialog(870, 800, "/common/webaddins/CommonApp/Pages/HelpCenter.html", (id ? "?id=" + id : id));
+        common.app.chatting = true;
+
+        if (args) { args.completed(); }
+    },
+
+    showLicenseCenter: function (args, executor, tab) {
+        addinAdapter.setStorageValue("executor", executor);
+        common.checkToken(true).then(function () {
+            $.ajax({
+                url: "/User/Authenticated",
+                type: "GET",
+                dataType: "json",
+                cache: false
+            })
+                .done(function (json) {
+                    if (json.result) {
+                        common.openDialog(870, 770, "/common/webaddins/CommonApp/Pages/LicenseCenter.html?tab=" + tab);
+                        common.app.chatting = true;
+                    } else {
+                        common.login();
+                    }
+                })
+                .fail(function (error) {
+                    common.showWarningDialog("Network communication error. Please try again.");
+                });
+        }).catch(function () {
+        });
+
+        if (args) { args.completed(); }
+    },
+
+    showOptionPicker: function (args, id, width, height, availableOptionsFunc) {
+        common.checkToken().then(function () {
+            if (availableOptionsFunc) {
+                availableOptionsFunc();
+            }
+            common.openDialog(width, height, '/common/webaddins/CommonApp/Pages/OptionPicker.html', '?id=' + id);
+        }).catch(function () {
+        });
+
+        if (args) { args.completed(); }
+    },
+
+    showProductSelectionWizard: function (args) {
+        addinAdapter.setStorageValue("executor", "common.showProductSelectionWizard");
+        common.checkToken().then(function () {
+            common.openDialog(870, 690, '/common/webaddins/CommonApp/AppUI/ProductSelectionWizard.html');
+        }).catch(function () {
+        });
+
+        if (args) { args.completed(); }
+    },
+
+    showPurchaseLicense: function (args, executor, width, height, url, displayInIframe) {
+        addinAdapter.setStorageValue("executor", executor);
+        common.checkToken(true).then(function () {
+            $.ajax({
+                url: "/User/Authenticated",
+                type: "GET",
+                dataType: "json",
+                cache: false
+            })
+                .done(function (json) {
+                    if (json.result) {
+                       addinAdapter.delStorageValue("executor");
+                       common.openDialog(width, height, url, undefined, displayInIframe);
+                    } else {
+                        common.login();
+                    }
+                })
+                .fail(function (error) {
+                    common.showWarningDialog("Network communication error. Please try again.");
+                });
+        }).catch(function () {
+        });
+
+        if (args) { args.completed(); }
+    },
+
+    showRetrieveLicenseDialog: function () {
+        addinAdapter.delStorageValue("executor");
+        common.closeDialogAsync(function () {
+            common.showUserDialog("/User/RetrievingLicense?lockCode=" + (addinAdapter.getStorageValue("lockCode") || ""));
+        });
+    },
+
+    showUserDialog: function (url) {
+        const width = 480, height = (window.top === window) ? 675 : 744;
+        common.openDialog(width, height, url);
+    },
+
+    showWarningDialog: function (message) {
+        addinAdapter.setStorageValue('warningMsg', message);
+        common.openDialog(600, 220, config.warningUrl);
+	},
+
+	addDecFunc: function () {
+		var inputs = [];
+		var outputs = [];
+		var tblAddress = "";
+		Excel.run(function (ctx) {
+			var book = ctx.workbook;
+			var sheets = book.worksheets;
+			var destRange = book.getSelectedRange();
+			var tblRange = destRange.getOffsetRange(-1, 0).getSurroundingRegion();
+			var srcRange = tblRange.getRow(1);
+			var lastrow = tblRange.getLastRow();
+			tblRange = srcRange.getBoundingRect(lastrow);
+			tblRange.load('address');
+			srcRange.load("columnCount");
+			srcRange.load('values');
+			return ctx.sync().then(function () {
+				tblAddress = tblRange.address;
+				var its = [];
+				for (var i = 0; i < srcRange.columnCount - 1; i++) {
+					its.push(srcRange.getCell(0, i + 1).format.borders.getItem('EdgeLeft'));
+					its[i].load('style');
+				}
+				return ctx.sync().then(function () {
+					var inputcells = true;
+					for (var j = 0; j < its.length; j++) {
+						if (its[j].style == 'Double') {
+							inputcells = false;
+						}
+						if (inputcells) {
+							inputs.push(srcRange.values[0][j + 1]);
+						} else {
+							outputs.push(srcRange.values[0][j + 1]);
+						}
+					}
+
+					if (inputs.length == 0) {
+						common.showWarningDialog('Unable to find a Decision Table near the active cell.');
+					} else {
+						var myTable = {};
+						myTable.address = tblAddress;
+						myTable.inputs = inputs;
+						myTable.outputs = outputs;
+
+						addinAdapter.setStorageValue('DecTable', JSON.stringify(myTable));
+						const width = 700, height = (window.top === window) ? 600 : 650;
+						common.openDialog(width, height, "/common/webaddins/CommonApp/Pages/DecisionFunction.html");
+					}
+
+				}).catch(function () {
+					common.showWarningDialog('Unable to find a Decision Table near the active cell.');
+				});
+			}).catch(function () {
+				common.showWarningDialog('Unable to find a Decision Table near the active cell.');
+			});
+		});
+	},
+
+	createDecFunc: function (table) {
+		Excel.run(function (ctx) {
+			var book = ctx.workbook;
+			var sheets = book.worksheets;
+			var destRange = book.getSelectedRange();
+			var srcRange = destRange.getOffsetRange(-1, 0).getSurroundingRegion().getLastRow();
+			srcRange.format.borders.getItem('EdgeBottom').style = 'Continuous';
+			srcRange.format.borders.getItem('EdgeBottom').weight = 'Medium';
+			destRange = srcRange.getLastColumn().getOffsetRange(1, 0);
+
+			var formula = "=PsiDecTable(";
+			formula = formula + table.address + ",{";
+			for (var i = 0; i < table.outputs.length; i++) {
+				formula = formula + '"' + table.outputs[i] + '"';
+				if (i < table.outputs.length-1) {
+					formula = formula + ",";
+				}
+			}
+			formula = formula + "},";
+			if (table.output == true) {
+				formula = formula + "TRUE,";
+			} else {
+				formula = formula + ",";
+			}
+			for (var i = 0; i < table.inputs.length; i++) {
+				formula = formula + table.inputs[i];
+				if (i < table.inputs.length - 1) {
+					formula = formula + ",";
+				}
+			}
+			formula = formula + ")";
+
+			destRange.formulas = [[formula]];
+			return ctx.sync().then(function () {
+				localStorage.setItem('psirefresh', "1");
+
+			}).catch(function () {
+				common.showWarningDialog('Unable to enter the PsiDecTable with the given arguments. Please check your input values, and surround them with quotes if required.');
+			});
+
+		});
+	},
+
+	createTableRow: function () {
+		Excel.run(function (ctx) {
+			var book = ctx.workbook;
+			var sheets = book.worksheets;
+			var destRange = book.getSelectedRange();
+			var srcRange = destRange.getOffsetRange(-1, 0).getSurroundingRegion().getLastRow();
+			destRange = srcRange.getOffsetRange(1, 0);
+			srcRange.load('values');
+			return ctx.sync().then(function () {
+				destRange.copyFrom(srcRange);
+				destRange.format.borders.getItem('EdgeTop').style = 'None';
+                destRange.getCell(0, 0).values = [[srcRange.values[0][0] + 1]];
+                for (var col = 1; col < srcRange.values[0].length; col++) {
+                    destRange.getCell(0, col).values = [['']];
+                }
+				destRange.getCell(0, 0).getOffsetRange(1, 0).select();
+				return ctx.sync().catch(common.errorHandler);
+			}).catch(function () {
+				common.showWarningDialog('Unable to find a Decision Table near the active cell.');
+			});
+			
+		});
+	},
+
+	createTable: function (table) {
+		Excel.run(function (ctx) {
+			var book = ctx.workbook;
+			var sheets = book.worksheets;
+			var range = book.getSelectedRange();
+			var cell = range.getCell(0, 0);
+			cell.values = [[table.name]];
+			cell.format.font.bold = true;
+			cell.getOffsetRange(1, 0).values = [[table.policy]];
+			var r = cell.getOffsetRange(1, 0).getResizedRange(1, 0);
+			r.merge();
+			r.format.verticalAlignment = "Center";
+			var wholerange = cell.getOffsetRange(1, 0).getResizedRange(2, table.inputs.length + table.outputs.length);
+			for (var i = 0; i < table.inputs.length; i++) {
+				wholerange.getCell(0, 1 + i).values = [[table.inputs[i].name]];
+				if (table.inputs[i].type != "any" && table.inputs[i].type != "Any") {
+					wholerange.getCell(1, 1 + i).values = [[table.inputs[i].type]];
+				}
+			}
+			for (var i = 0; i < table.outputs.length; i++) {
+				wholerange.getCell(0, 1 + table.inputs.length + i).values = [[table.outputs[i].name]];
+				if (table.outputs[i].type != "ordering" && table.outputs[i].type != "Ordering" &&
+					table.outputs[i].type != "any" && table.outputs[i].type != "Any") {
+					wholerange.getCell(1, 1 + table.inputs.length + i).values = [[table.outputs[i].type]];
+				}
+			}
+			wholerange.getCell(2, 0).values = [[1]];
+			wholerange.format.horizontalAlignment = 'Center';
+			wholerange.getRow(0).format.font.bold = true;
+			//wholerange.format.autofitColumns();
+			wholerange.format.borders.getItem('InsideHorizontal').style = 'Continuous';
+			wholerange.format.borders.getItem('InsideVertical').style = 'Continuous';
+			wholerange.format.borders.getItem('EdgeLeft').style = 'Continuous';
+			wholerange.format.borders.getItem('EdgeRight').style = 'Continuous';
+			wholerange.format.borders.getItem('EdgeTop').style = 'Continuous';
+			wholerange.format.borders.getItem('InsideHorizontal').weight = 'Medium';
+			wholerange.format.borders.getItem('InsideVertical').weight = 'Medium';
+			wholerange.format.borders.getItem('EdgeLeft').weight = 'Medium';
+			wholerange.format.borders.getItem('EdgeRight').weight = 'Medium';
+			wholerange.format.borders.getItem('EdgeTop').weight = 'Medium';
+			var top2 = wholerange.getRow(0).getResizedRange(1, 0);
+			top2.format.borders.getItem('EdgeBottom').style = 'Double';
+
+			wholerange.getColumn(table.inputs.length).format.borders.getItem('EdgeRight').style = 'Double';
+			wholerange.getRow(2).NumberFormat = "@";
+			wholerange.getCell(0,0).getOffsetRange(3, 0).select();
+			return ctx.sync().catch(common.errorHandler);
+		});
+	},
+
+    studentPurchaseLicense: function (args, data) {
+        var executor = {
+            "func": "common.studentPurchaseLicense",
+            "args": [
+                null,
+                data
+            ]
+        }
+        common.showPurchaseLicense(args, executor, 550, (window.top === window) ? 880 : 950, "/User/StudentPurchaseLicense?data=" + data, false);
+    },
+
+    updateLocalStorage: function () {
+        return Excel.run(function (context) {
+            var book = context.workbook;
+            var sheets = book.worksheets;
+            var sheet = sheets.getActiveWorksheet();
+            var range = book.getSelectedRange();
+            range.load('address');
+            book.load('name');
+            sheets.load("items/name");
+            sheet.load('name');
+
+            return context.sync().then(function () {
+                var sheetnames = [];
+                for (var j in sheets.items) {
+                    sheetnames.push(sheets.items[j].name);
+                }
+
+                var ExcelInfo = {
+                    workbook: book.name,
+                    worksheets: sheetnames,
+                    activeSheet: sheet.name
+                };
+
+                var names = {};
+
+                var defNamePartitionTrainingData = [];
+                var defNamePartitionValidationData = [];
+                var defNamePartitionTestData = [];
+                var defNamePartitionAllData = [];
+                var defNamePartitionType = [];
+                var defNamePartitionVariableNames = [];
+                var defNamePartitionTimeVar = [];
+                var defNameXLMModelDefinition = [];
+                var defNameXLMFullModelDefinition = [];
+                var defNameXLMModelTypeId = [];
+                var defNameXLMModelInputVars = [];
+                var defNameXLMTreeModelsCSV = [];
+                var defNameXLMReportData = [];
+                var defNameXLMSampleVarNames = [];
+                var defNameXLMReportRowIDRange = [];
+                var defNameXLMImportFileNamesRange = [];
+                var defNameXLMTMFilesAsPaths = [];
+                var JobId = [];
+                var TextMinerConfigRangeKey = [];
+                var DEF_NAME_XLMPMMLModelRange = [];
+                var DEF_NAME_XLMModelTypeId = [];
+                var DEF_NAME_XLMModelInputVars = [];
+                var DEF_NAME_XLMModelInputVarsFullGrown = [];
+                var DEF_NAME_XLMModelInputVarsBestPruned = [];
+                var DEF_NAME_XLMModelInputVarsMinimumError = [];
+                var DEF_NAME_XLMModelInputVarsUserSpecified = [];
+                var DEF_NAME_XLMModelInputVarsRoleFullGrown = [];
+                var DEF_NAME_XLMModelInputVarsRoleBestPruned = [];
+                var DEF_NAME_XLMModelInputVarsRoleMinimumError = [];
+                var DEF_NAME_XLMModelInputVarsRoleUserSpecified = [];
+                var DEF_NAME_XLMModelDefinition = [];
+                var DEF_NAME_XLMFullModelRangeFullGrown = [];
+                var DEF_NAME_XLMFullModelRangeBestPruned = [];
+                var DEF_NAME_XLMFullModelRangeMinimumError = [];
+                var DEF_NAME_XLMFullModelRangeUserSpecified = [];
+                var DEF_NAME_XLMModelDefinitionFullGrown = [];
+                var DEF_NAME_XLMModelDefinitionBestPruned = [];
+                var DEF_NAME_XLMModelDefinitionMinimumError = [];
+                var DEF_NAME_XLMModelDefinitionUserSpecified = [];
+                var k = 0;
+                for (var i in sheets.items) {
+                    var sheet_names_proxy = context.workbook.worksheets.getItem(sheets.items[i].name).names;
+                    defNamePartitionTrainingData.push(sheet_names_proxy.getItemOrNullObject('XLMPartitionTrainingData'));
+                    defNamePartitionValidationData.push(sheet_names_proxy.getItemOrNullObject('XLMPartitionValidationData'));
+                    defNamePartitionTestData.push(sheet_names_proxy.getItemOrNullObject('XLMPartitionTestData'));
+                    defNamePartitionAllData.push(sheet_names_proxy.getItemOrNullObject('XLMPartitionAllData'));
+                    defNamePartitionType.push(sheet_names_proxy.getItemOrNullObject('XLMPartitionType'));
+                    defNamePartitionVariableNames.push(sheet_names_proxy.getItemOrNullObject('XLMPartitionVariableNames'));
+                    defNamePartitionTimeVar.push(sheet_names_proxy.getItemOrNullObject('XLMPartitionTimeVar'));
+                    defNameXLMModelDefinition.push(sheet_names_proxy.getItemOrNullObject('XLMModelDefinition'));
+                    defNameXLMFullModelDefinition.push(sheet_names_proxy.getItemOrNullObject('XLMFullModelDefinition'));
+                    defNameXLMModelTypeId.push(sheet_names_proxy.getItemOrNullObject('XLMModelTypeId'));
+                    defNameXLMModelInputVars.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVars'));
+                    defNameXLMTreeModelsCSV.push(sheet_names_proxy.getItemOrNullObject('XLMTreeModelsCSV'));
+                    defNameXLMReportData.push(sheet_names_proxy.getItemOrNullObject('XLMReportData'));
+                    defNameXLMSampleVarNames.push(sheet_names_proxy.getItemOrNullObject('XLMSampleVarNames'));
+                    defNameXLMReportRowIDRange.push(sheet_names_proxy.getItemOrNullObject('XLMReportRowIDRange'));
+                    defNameXLMImportFileNamesRange.push(sheet_names_proxy.getItemOrNullObject('XLMImportFileNamesRange'));
+                    defNameXLMTMFilesAsPaths.push(sheet_names_proxy.getItemOrNullObject('XLMTMFilesAsPaths'));
+                    JobId.push(sheet_names_proxy.getItemOrNullObject('JobId'));
+                    TextMinerConfigRangeKey.push(sheet_names_proxy.getItemOrNullObject('XLMTextMinerConfigRange'));
+
+                    DEF_NAME_XLMPMMLModelRange.push(sheet_names_proxy.getItemOrNullObject('XLMPMMLModelRange'));
+                    DEF_NAME_XLMModelTypeId.push(sheet_names_proxy.getItemOrNullObject('XLMModelTypeId'));
+                    DEF_NAME_XLMModelInputVars.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVars'));
+                    DEF_NAME_XLMModelInputVarsFullGrown.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVarsFullGrown'));
+                    DEF_NAME_XLMModelInputVarsBestPruned.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVarsBestPruned'));
+                    DEF_NAME_XLMModelInputVarsMinimumError.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVarsMinimumError'));
+                    DEF_NAME_XLMModelInputVarsUserSpecified.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVarsUserSpecified'));
+                    DEF_NAME_XLMModelInputVarsRoleFullGrown.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVarsRoleFullGrown'));
+                    DEF_NAME_XLMModelInputVarsRoleBestPruned.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVarsRoleBestPruned'));
+                    DEF_NAME_XLMModelInputVarsRoleMinimumError.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVarsRoleMinimumError'));
+                    DEF_NAME_XLMModelInputVarsRoleUserSpecified.push(sheet_names_proxy.getItemOrNullObject('XLMModelInputVarsRoleUserSpecified'));
+                    DEF_NAME_XLMModelDefinition.push(sheet_names_proxy.getItemOrNullObject('XLMModelDefinition'));
+                    DEF_NAME_XLMFullModelRangeFullGrown.push(sheet_names_proxy.getItemOrNullObject('XLMFullModelDefinitionFullGrown'));
+                    DEF_NAME_XLMFullModelRangeBestPruned.push(sheet_names_proxy.getItemOrNullObject('XLMFullModelDefinitionBestPruned'));
+                    DEF_NAME_XLMFullModelRangeMinimumError.push(sheet_names_proxy.getItemOrNullObject('XLMFullModelDefinitionMinimumError'));
+                    DEF_NAME_XLMFullModelRangeUserSpecified.push(sheet_names_proxy.getItemOrNullObject('XLMFullModelDefinitionUserSpecified'));
+                    DEF_NAME_XLMModelDefinitionFullGrown.push(sheet_names_proxy.getItemOrNullObject('XLMModelDefinitionFullGrown'));
+                    DEF_NAME_XLMModelDefinitionBestPruned.push(sheet_names_proxy.getItemOrNullObject('XLMModelDefinitionBestPruned'));
+                    DEF_NAME_XLMModelDefinitionMinimumError.push(sheet_names_proxy.getItemOrNullObject('XLMModelDefinitionMinimumError'));
+                    DEF_NAME_XLMModelDefinitionUserSpecified.push(sheet_names_proxy.getItemOrNullObject('XLMModelDefinitionUserSpecified'));
+
+                    defNamePartitionTrainingData[k].load('value');
+                    defNamePartitionValidationData[k].load('value');
+                    defNamePartitionTestData[k].load('value');
+                    defNamePartitionAllData[k].load('value');
+                    defNamePartitionType[k].load('value');
+                    defNamePartitionVariableNames[k].load('value');
+                    defNamePartitionTimeVar[k].load('value');
+                    defNameXLMModelDefinition[k].load('value');
+                    defNameXLMFullModelDefinition[k].load('value');
+                    defNameXLMModelTypeId[k].load('value');
+                    defNameXLMModelInputVars[k].load('value');
+                    defNameXLMTreeModelsCSV[k].load('value');
+                    defNameXLMReportData[k].load('value');
+                    defNameXLMSampleVarNames[k].load('value');
+                    defNameXLMReportRowIDRange[k].load('value');
+                    defNameXLMImportFileNamesRange[k].load('value');
+                    defNameXLMTMFilesAsPaths[k].load('value');
+                    JobId[k].load('value');
+                    TextMinerConfigRangeKey[k].load('value');
+                    DEF_NAME_XLMPMMLModelRange[k].load('value');
+                    DEF_NAME_XLMModelTypeId[k].load('value');
+                    DEF_NAME_XLMModelInputVars[k].load('value');
+                    DEF_NAME_XLMModelInputVarsFullGrown[k].load('value');
+                    DEF_NAME_XLMModelInputVarsBestPruned[k].load('value');
+                    DEF_NAME_XLMModelInputVarsMinimumError[k].load('value');
+                    DEF_NAME_XLMModelInputVarsUserSpecified[k].load('value');
+                    DEF_NAME_XLMModelInputVarsRoleFullGrown[k].load('value');
+                    DEF_NAME_XLMModelInputVarsRoleBestPruned[k].load('value');
+                    DEF_NAME_XLMModelInputVarsRoleMinimumError[k].load('value');
+                    DEF_NAME_XLMModelInputVarsRoleUserSpecified[k].load('value');
+                    DEF_NAME_XLMModelDefinition[k].load('value');
+                    DEF_NAME_XLMFullModelRangeFullGrown[k].load('value');
+                    DEF_NAME_XLMFullModelRangeBestPruned[k].load('value');
+                    DEF_NAME_XLMFullModelRangeMinimumError[k].load('value');
+                    DEF_NAME_XLMFullModelRangeUserSpecified[k].load('value');
+                    DEF_NAME_XLMModelDefinitionFullGrown[k].load('value');
+                    DEF_NAME_XLMModelDefinitionBestPruned[k].load('value');
+                    DEF_NAME_XLMModelDefinitionMinimumError[k].load('value');
+                    DEF_NAME_XLMModelDefinitionUserSpecified[k].load('value');
+
+                    k++;
+                }
+                var active_sheet_names_proxy = context.workbook.worksheets.getActiveWorksheet().names;
+                var region1 = active_sheet_names_proxy.getItemOrNullObject('XLMReportData');
+                region1.load('value');
+                var region2 = active_sheet_names_proxy.getItemOrNullObject('XLMPartitionAllData');
+                region2.load('value');
+                return context.sync().then(function () {
+                    var k = 0;
+                    for (var i in sheets.items) {
+
+                        names[sheets.items[i].name] = {
+                            XLMPartitionTrainingData: defNamePartitionTrainingData[k].value,
+                            XLMPartitionValidationData: defNamePartitionValidationData[k].value,
+                            XLMPartitionTestData: defNamePartitionTestData[k].value,
+                            XLMPartitionAllData: defNamePartitionAllData[k].value,
+                            XLMPartitionType: defNamePartitionType[k].value,
+                            XLMPartitionVariableNames: defNamePartitionVariableNames[k].value,
+                            XLMPartitionTimeVar: defNamePartitionTimeVar[k].value,
+                            XLMModelDefinition: defNameXLMModelDefinition[k].value,
+                            XLMFullModelDefinition: defNameXLMFullModelDefinition[k].value,
+                            XLMModelTypeId: defNameXLMModelTypeId[k].value,
+                            XLMModelInputVars: defNameXLMModelInputVars[k].value,
+                            XLMTreeModelsCSV: defNameXLMTreeModelsCSV[k].value,
+                            XLMReportData: defNameXLMReportData[k].value,
+                            XLMSampleVarNames: defNameXLMSampleVarNames[k].value,
+                            XLMReportRowIDRange: defNameXLMReportRowIDRange[k].value,
+                            XLMImportFileNamesRange: defNameXLMImportFileNamesRange[k].value,
+                            XLMTMFilesAsPaths: defNameXLMTMFilesAsPaths[k].value,
+                            JobId: JobId[k].value,
+                            XLMTextMinerConfigRange: TextMinerConfigRangeKey[k].value,
+                            XLMPMMLModelRange: DEF_NAME_XLMPMMLModelRange[k].value,
+                            XLMModelInputVarsFullGrown: DEF_NAME_XLMModelInputVarsFullGrown[k].value,
+                            XLMModelInputVarsBestPruned: DEF_NAME_XLMModelInputVarsBestPruned[k].value,
+                            XLMModelInputVarsMinimumError: DEF_NAME_XLMModelInputVarsMinimumError[k].value,
+                            XLMModelInputVarsUserSpecified: DEF_NAME_XLMModelInputVarsUserSpecified[k].value,
+                            XLMModelInputVarsRoleFullGrown: DEF_NAME_XLMModelInputVarsRoleFullGrown[k].value,
+                            XLMModelInputVarsRoleBestPruned: DEF_NAME_XLMModelInputVarsRoleBestPruned[k].value,
+                            XLMModelInputVarsRoleMinimumError: DEF_NAME_XLMModelInputVarsRoleMinimumError[k].value,
+                            XLMModelInputVarsRoleUserSpecified: DEF_NAME_XLMModelInputVarsRoleUserSpecified[k].value,
+                            XLMFullModelDefinitionFullGrown: DEF_NAME_XLMFullModelRangeFullGrown[k].value,
+                            XLMFullModelDefinitionBestPruned: DEF_NAME_XLMFullModelRangeBestPruned[k].value,
+                            XLMFullModelDefinitionMinimumError: DEF_NAME_XLMFullModelRangeMinimumError[k].value,
+                            XLMFullModelDefinitionUserSpecified: DEF_NAME_XLMFullModelRangeUserSpecified[k].value,
+                            XLMModelDefinitionFullGrown: DEF_NAME_XLMModelDefinitionFullGrown[k].value,
+                            XLMModelDefinitionBestPruned: DEF_NAME_XLMModelDefinitionBestPruned[k].value,
+                            XLMModelDefinitionMinimumError: DEF_NAME_XLMModelDefinitionMinimumError[k].value,
+                            XLMModelDefinitionUserSpecified: DEF_NAME_XLMModelDefinitionUserSpecified[k].value
+                        };
+
+                        k++;
+                    }
+                    addinAdapter.setStorageValue('ExcelNames', names);
+                    var region = range.getSurroundingRegion();
+                    region.load('address');
+                    return context.sync().then(function () {
+                        if (region1 && region1.value && region1.value !== "") {
+                            ExcelInfo.region = region1.value;
+                        } else {
+                            if (region2 && region2.value && region2.value !== "") {
+                                ExcelInfo.region = region2.value;
+                            } else {
+                                ExcelInfo.region = region.address.substr(region.address.indexOf('!') + 1);
+                            }
+                        }
+                        addinAdapter.setStorageValue('ExcelInfo', ExcelInfo);
+                    }).catch(function () {
+                        ExcelInfo.region = range.address.substr(range.address.indexOf('!') + 1);
+                        addinAdapter.setStorageValue('ExcelInfo', ExcelInfo);
+                    });
+                }).catch(common.errorHandler);
+
+            }).catch(common.errorHandler);
+        }).catch(common.errorHandler);
+    },
+
+    welcomeScreen: function (args) {
+        addinAdapter.setStorageValue("executor", "common.welcomeScreen");
+        common.checkToken().then(function () {
+            addinAdapter.delStorageValue("executor");
+            common.openDialog(870, 660, config.welcomeUrl);
+        }).catch(function () {
+        });
+
+        if (args) { args.completed(); }
+    }
+
+};
